@@ -192,6 +192,182 @@ router.put("/forgot-password", verifyToken, async (req, res) => {
    }
 });
 
+//Version Check
+router.post('/version-check', async (req, res) => {
+   const { version_code, client_type, device_info, fcm_token, login, access_token } = req.headers;
+
+   console.log('Received headers:', { version_code, client_type, device_info, fcm_token });
+
+   if (!version_code || !client_type || !device_info || !fcm_token) {
+      return res.status(400).json({
+         status: false,
+         message: 'Missing required headers: version_code, client_type, device_info, or fcm_token',
+      });
+   }
+
+   const isUserLoggedIn = login && access_token;
+   if (login && !access_token) {
+      return res.status(401).json({
+         status: false,
+         message: 'Missing access_token for logged-in user',
+      });
+   }
+
+   try {
+      // Fetch version details
+      const versionQuery = `
+         SELECT version_code, version_name, update_note, update_date, is_mandatory
+         FROM app_version
+         WHERE client_type = ? AND is_active = 1
+         ORDER BY id DESC
+         LIMIT 1
+      `;
+      const [versionResult] = await con.query(versionQuery, [client_type]);
+
+      if (!versionResult || versionResult.length === 0) {
+         return res.status(404).json({
+            status: false,
+            message: 'No active version found for the specified client type',
+         });
+      }
+
+      // Fetch configuration details
+      const configQuery = `
+         SELECT id, config_key, value, client_type, is_active
+         FROM app_configuration
+         WHERE client_type = ? AND is_active = 1
+      `;
+      const [configResult] = await con.query(configQuery, [client_type]);
+
+      // Prepare response data
+      res.status(200).json({
+         status: true,
+         message: 'Validated successfully',
+         version_info: {
+            version_code: versionResult[0].version_code,
+            version_name: versionResult[0].version_name,
+            update_note: versionResult[0].update_note,
+            update_date: versionResult[0].update_date,
+            is_mandatory: versionResult[0].is_mandatory,
+         },
+         config_info: configResult.map((config) => ({
+            id: config.id,
+            config_key: config.config_key,
+            value: config.value,
+            client_type: config.client_type,
+            is_active: config.is_active,
+         })),
+         user_status: isUserLoggedIn ? 'Logged In' : 'Not Logged In',
+         headers_received: {
+            version_code,
+            client_type,
+            device_info,
+            fcm_token,
+            ...(isUserLoggedIn ? { login, access_token } : {}),
+         },
+      });
+   } catch (error) {
+      console.error('Error occurred:', error);
+      res.status(500).json({
+         status: false,
+         message: 'Internal server error',
+         error: error.message,
+      });
+   }
+});
+
+//User Info
+router.post('/user-info', async (req, res) => {
+   const {
+      version_code,
+      client_type,
+      device_info,
+      fcm_token,
+      login,
+      access_token,
+   } = req.headers;
+
+   if (!version_code || !client_type || !device_info || !fcm_token || !login || !access_token) {
+      return res.status(400).json({
+         status: false,
+         message: "Missing required headers: 'login' and/or 'access_token'.",
+      });
+   }
+
+   try {
+      const decoded = jwt.verify(access_token, JWT_SECRET_KEY);
+      if (!decoded) {
+         return res.status(401).json({
+            status: false,
+            message: 'Invalid or expired access token.',
+         });
+      }
+
+      const tokenQuery = `
+         SELECT token FROM users WHERE phone = ?;
+      `;
+      const [tokenResult] = await con.query(tokenQuery, [login]);
+
+      if (tokenResult.length === 0 || tokenResult[0].token !== access_token) {
+         return res.status(401).json({
+            status: false,
+            message: 'Access token mismatch or user not found.',
+         });
+      }
+
+      const userInfoQuery = `
+         SELECT
+            u.id AS user_id,
+            r.name,
+            r.email,
+            r.phone
+         FROM
+            registration r
+         JOIN
+            users u
+         ON
+            r.phone = u.phone
+         WHERE
+            r.phone = ?;
+      `;
+
+      const [results] = await con.query(userInfoQuery, [login]);
+
+      if (results.length === 0) {
+         return res.status(404).json({
+            status: false,
+            message: 'User not found.',
+         });
+      }
+
+      const user = results[0];
+
+      return res.status(200).json({
+         status: true,
+         message: 'User details fetched successfully.',
+         data: {
+            id: user.user_id,
+            name: user.name,
+            email: user.email,
+            phone: user.phone,
+         },
+      });
+   } catch (error) {
+      if (error.name === 'JsonWebTokenError') {
+         return res.status(401).json({
+            status: false,
+            message: 'Invalid or expired access token.',
+         });
+      }
+
+      console.error(error);
+      return res.status(500).json({
+         status: false,
+         message: 'Internal server error.',
+      });
+   }
+});
+
 router.get('/logout', (req, res) => {
    res.clearCookie('token');
    return res.json({ Status: true });
