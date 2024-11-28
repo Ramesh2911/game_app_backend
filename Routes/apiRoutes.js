@@ -196,8 +196,6 @@ router.put("/forgot-password", verifyToken, async (req, res) => {
 router.post('/version-check', async (req, res) => {
    const { version_code, client_type, device_info, fcm_token, login, access_token } = req.headers;
 
-   console.log('Received headers:', { version_code, client_type, device_info, fcm_token });
-
    if (!version_code || !client_type || !device_info || !fcm_token) {
       return res.status(400).json({
          status: false,
@@ -214,9 +212,8 @@ router.post('/version-check', async (req, res) => {
    }
 
    try {
-      // Fetch version details
       const versionQuery = `
-         SELECT version_code, version_name, update_note, update_date, is_mandatory
+         SELECT version_code, version_name, update_note, update_date, app_url, is_mandatory
          FROM app_version
          WHERE client_type = ? AND is_active = 1
          ORDER BY id DESC
@@ -231,7 +228,6 @@ router.post('/version-check', async (req, res) => {
          });
       }
 
-      // Fetch configuration details
       const configQuery = `
          SELECT id, config_key, value, client_type, is_active
          FROM app_configuration
@@ -239,7 +235,6 @@ router.post('/version-check', async (req, res) => {
       `;
       const [configResult] = await con.query(configQuery, [client_type]);
 
-      // Prepare response data
       res.status(200).json({
          status: true,
          message: 'Validated successfully',
@@ -248,15 +243,18 @@ router.post('/version-check', async (req, res) => {
             version_name: versionResult[0].version_name,
             update_note: versionResult[0].update_note,
             update_date: versionResult[0].update_date,
+            app_url: versionResult[0].app_url,
             is_mandatory: versionResult[0].is_mandatory,
          },
-         config_info: configResult.map((config) => ({
-            id: config.id,
-            config_key: config.config_key,
-            value: config.value,
-            client_type: config.client_type,
-            is_active: config.is_active,
-         })),
+         config_info: configResult.length > 0
+            ? configResult.map((config) => ({
+               id: config.id,
+               config_key: config.config_key,
+               value: config.value,
+               client_type: config.client_type,
+               is_active: config.is_active,
+            }))
+            : [],
          user_status: isUserLoggedIn ? 'Logged In' : 'Not Logged In',
          headers_received: {
             version_code,
