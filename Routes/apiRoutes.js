@@ -2,6 +2,7 @@ import express from "express";
 import con from "../config/db.js";
 import jwt from "jsonwebtoken";
 import bcrypt from 'bcryptjs';
+import moment from "moment-timezone";
 
 const router = express.Router();
 
@@ -221,6 +222,11 @@ router.post('/version-check', async (req, res) => {
       `;
       const [versionResult] = await con.query(versionQuery, [client_type]);
 
+      const timezone = 'Asia/Kolkata';
+      const formattedUpdateDate = moment(versionResult[0].update_date)
+         .tz(timezone)
+         .format('YYYY-MM-DD HH:mm:ss');
+
       if (!versionResult || versionResult.length === 0) {
          return res.status(404).json({
             status: false,
@@ -242,7 +248,7 @@ router.post('/version-check', async (req, res) => {
             version_code: versionResult[0].version_code,
             version_name: versionResult[0].version_name,
             update_note: versionResult[0].update_note,
-            update_date: versionResult[0].update_date,
+            update_date: formattedUpdateDate,
             app_url: versionResult[0].app_url,
             is_mandatory: versionResult[0].is_mandatory,
          },
@@ -255,14 +261,6 @@ router.post('/version-check', async (req, res) => {
                is_active: config.is_active,
             }))
             : [],
-         user_status: isUserLoggedIn ? 'Logged In' : 'Not Logged In',
-         headers_received: {
-            version_code,
-            client_type,
-            device_info,
-            fcm_token,
-            ...(isUserLoggedIn ? { login, access_token } : {}),
-         },
       });
    } catch (error) {
       console.error('Error occurred:', error);
