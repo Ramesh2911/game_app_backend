@@ -639,9 +639,6 @@ router.post('/game-details', async (req, res) => {
       const slotQuery = `
        SELECT
          Slot_id AS slot_id,
-         game_type_id AS game_type_id,
-         game_type_id AS game_type_id,
-         app_id AS app_id,
          Start_date_time AS start_date_time,
          End_date_time AS end_date_time,
          is_active
@@ -684,9 +681,228 @@ router.post('/game-details', async (req, res) => {
    }
 });
 
+//Game all details
+router.post('/game-all-details', async (req, res) => {
+   const {
+      version_code,
+      client_type,
+      device_info,
+      fcm_token,
+      login,
+      access_token,
+   } = req.headers;
 
+   if (
+      !version_code ||
+      !client_type ||
+      !device_info ||
+      !fcm_token ||
+      !login ||
+      !access_token
+   ) {
+      return res.status(400).json({
+         status: false,
+         message: 'Missing required headers',
+      });
+   }
 
+   try {
+      const decoded = jwt.verify(access_token, JWT_SECRET_KEY);
+      if (!decoded) {
+         return res.status(401).json({
+            status: false,
+            message: 'Invalid or expired access token.',
+         });
+      }
 
+      const tokenQuery = `
+       SELECT user_id, token
+       FROM users
+       WHERE phone = ?;
+     `;
+      const [tokenResult] = await con.execute(tokenQuery, [login]);
+
+      if (tokenResult.length === 0 || tokenResult[0].token !== access_token) {
+         return res.status(401).json({
+            status: false,
+            message: 'Access token mismatch or user not found.',
+         });
+      }
+
+      const gameQuery = `
+       SELECT Game_id AS game_id, Game_name AS game_name, Game_pic AS game_pic, is_active
+       FROM game_master
+       WHERE is_active = 1;
+     `;
+      const [gameResults] = await con.execute(gameQuery);
+
+      if (gameResults.length === 0) {
+         return res.status(404).json({
+            status: false,
+            message: 'No active games found.',
+         });
+      }
+
+      const gameDetails = await Promise.all(
+         gameResults.map(async (game) => {
+            const gameTypeQuery = `
+           SELECT
+             game_type_id AS game_type_id,
+             game_id AS game_id,
+             game_type_name AS game_type_name,
+             noOf_item_choose AS game_max_digit_allowed,
+             min_entry_fee AS game_min_play_amount,
+             max_entry_fee AS game_max_play_amount,
+             prize_value_noOf_times AS prize_value,
+             is_active
+           FROM game_type_master
+           WHERE game_id = ? AND is_active = 1;
+         `;
+            const [gameTypeResults] = await con.execute(gameTypeQuery, [game.game_id]);
+
+            const gameTypesWithSlots = await Promise.all(
+               gameTypeResults.map(async (gameType) => {
+                  const slotQuery = `
+               SELECT
+                 Slot_id AS slot_id,
+                 Start_date_time AS start_date_time,
+                 End_date_time AS end_date_time,
+                 is_active
+               FROM game_slot_configuration_master
+               WHERE game_id = ? AND game_type_id = ? AND is_active = 1;
+             `;
+                  const [slotResults] = await con.execute(slotQuery, [
+                     gameType.game_id,
+                     gameType.game_type_id,
+                  ]);
+
+                  return {
+                     ...gameType,
+                     slotDetails: slotResults.length > 0 ? slotResults : [],
+                  };
+               })
+            );
+
+            return {
+               ...game,
+               gameTypes: gameTypesWithSlots,
+            };
+         })
+      );
+
+      res.status(200).json({
+         status: true,
+         message: 'Game details retrieved successfully',
+         gameDetails,
+      });
+   } catch (err) {
+      console.error('Error:', err);
+      if (err.name === 'JsonWebTokenError') {
+         return res.status(401).json({
+            status: false,
+            message: 'Invalid or expired access token.',
+         });
+      }
+
+      res.status(500).json({
+         status: false,
+         message: 'Internal server error',
+      });
+   }
+});
+
+//User game Submit
+router.post('/user-game-save', async (req, res) => {
+   const { user_id, game_id, game_type_id, slot_id, chosen_numbers } = req.body;
+   const {
+      version_code,
+      client_type,
+      device_info,
+      fcm_token,
+      login,
+      access_token,
+   } = req.headers;
+
+   if (
+      !version_code ||
+      !client_type ||
+      !device_info ||
+      !fcm_token ||
+      !login ||
+      !access_token
+   ) {
+      return res.status(400).json({
+         status: false,
+         message: 'Missing required headers',
+      });
+   }
+
+   if (!user_id || !game_id || !game_type_id || !slot_id || !chosen_numbers || !Array.isArray(chosen_numbers)) {
+      return res.status(400).json({
+         status: false,
+         message: 'Invalid or missing required body parameters.',
+      });
+   }
+
+   try {
+      const decoded = jwt.verify(access_token, JWT_SECRET_KEY);
+      if (!decoded) {
+         return res.status(401).json({
+            status: false,
+            message: 'Invalid or expired access token.',
+         });
+      }
+      const [userResult] = await con.execute(
+         `SELECT user_id, token FROM users WHERE phone = ? AND user_id = ?`,
+         [login, user_id]
+      );
+
+      if (userResult.length === 0 || userResult[0].token !== access_token) {
+         return res.status(401).json({
+            status: false,
+            message: 'Access token mismatch, user_id or login does not match.',
+         });
+      }
+
+      const insertMapQuery = `
+        INSERT INTO user_game_map (user_id, game_id, game_type_id, slot_id, bid_Value)
+        VALUES (?, ?, ?, ?, ?)
+      `;
+      const insertValuesQuery = `
+        INSERT INTO user_game_choosen_values (user_game_map_id, chosen_value)
+        VALUES (?, ?)
+      `;
+
+      const insertedIds = [];
+      for (const item of chosen_numbers) {
+         const [mapResult] = await con.execute(insertMapQuery, [user_id, game_id, game_type_id, slot_id, item.amount]);
+         const userGameMapId = mapResult.insertId;
+
+         await con.execute(insertValuesQuery, [userGameMapId, item.number]);
+
+         insertedIds.push(userGameMapId);
+      }
+
+      res.status(200).json({
+         status: true,
+         message: 'Game details saved successfully',
+         insertedIds,
+      });
+   } catch (err) {
+      console.error('Error:', err);
+      if (err.name === 'JsonWebTokenError') {
+         return res.status(401).json({
+            status: false,
+            message: 'Invalid or expired access token.',
+         });
+      }
+
+      res.status(500).json({
+         status: false,
+         message: 'Internal server error',
+      });
+   }
+});
 
 
 router.get('/logout', (req, res) => {
