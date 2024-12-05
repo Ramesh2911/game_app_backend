@@ -405,10 +405,10 @@ router.post('/game-list', async (req, res) => {
       }
 
       const tokenQuery = `
-       SELECT user_id, token
-       FROM users
-       WHERE phone = ?;
-     `;
+           SELECT user_id, token
+           FROM users
+           WHERE phone = ?;
+       `;
       const [tokenResult] = await con.execute(tokenQuery, [login]);
 
       if (tokenResult.length === 0 || tokenResult[0].token !== access_token) {
@@ -425,17 +425,43 @@ router.post('/game-list', async (req, res) => {
          });
       }
 
-      const query = `
-       SELECT Game_id, Game_name, Game_pic, is_active
-       FROM game_master
-       WHERE is_active = 1
-     `;
-      const [results] = await con.execute(query);
+      const gameQuery = `
+           SELECT game_id, app_id, game_name, game_pic, is_active
+           FROM game_master
+           WHERE is_active = 1 AND is_deleted = 0;
+       `;
+      const [games] = await con.execute(gameQuery);
+
+      const currentTime = moment();
+
+      const gameList = await Promise.all(
+         games.map(async (game) => {
+            const slotQuery = `
+                   SELECT COUNT(*) AS active_slots
+                   FROM game_slot_configuration_master
+                   WHERE game_id = ?
+                     AND is_active = 1
+                     AND is_deleted = 0
+                     AND ? BETWEEN start_date_time AND end_date_time;
+               `;
+            const [slotResults] = await con.execute(slotQuery, [
+               game.game_id,
+               currentTime.format('YYYY-MM-DD HH:mm:ss'),
+            ]);
+
+            const is_game_active = slotResults[0].active_slots > 0 ? 1 : 0;
+
+            return {
+               ...game,
+               is_game_active,
+            };
+         })
+      );
 
       res.status(200).json({
          status: true,
          message: 'Game list retrieved successfully',
-         gameList: results,
+         gameList,
       });
    } catch (err) {
       console.error('Error:', err);
@@ -580,10 +606,10 @@ router.post('/game-details', async (req, res) => {
       }
 
       const tokenQuery = `
-       SELECT user_id, token
-       FROM users
-       WHERE phone = ?;
-     `;
+         SELECT user_id, token
+         FROM users
+         WHERE phone = ?;
+      `;
       const [tokenResult] = await con.execute(tokenQuery, [login]);
 
       if (tokenResult.length === 0 || tokenResult[0].token !== access_token) {
@@ -594,10 +620,10 @@ router.post('/game-details', async (req, res) => {
       }
 
       const gameQuery = `
-       SELECT Game_id AS game_id, Game_name AS game_name, Game_pic AS game_pic
-       FROM game_master
-       WHERE Game_id = ? AND is_active = 1;
-     `;
+         SELECT Game_id AS game_id, Game_name AS game_name, Game_pic AS game_pic
+         FROM game_master
+         WHERE Game_id = ? AND is_active = 1;
+      `;
       const [gameResults] = await con.execute(gameQuery, [game_id]);
 
       if (gameResults.length === 0) {
@@ -609,17 +635,17 @@ router.post('/game-details', async (req, res) => {
       const gameDetails = gameResults[0];
 
       const gameTypeQuery = `
-       SELECT
-         game_type_id AS game_type_id,
-         game_type_name AS game_type_name,
-         noOf_item_choose AS game_max_digit_allowed,
-         min_entry_fee AS game_min_play_amount,
-         max_entry_fee AS game_max_play_amount,
-         prize_value_noOf_times AS prize_value,
-         is_active
-       FROM game_type_master
-       WHERE game_id = ? AND game_type_id = ? AND is_active = 1;
-     `;
+         SELECT
+            game_type_id AS game_type_id,
+            game_type_name AS game_type_name,
+            noOf_item_choose AS game_max_digit_allowed,
+            min_entry_fee AS game_min_play_amount,
+            max_entry_fee AS game_max_play_amount,
+            prize_value_noOf_times AS prize_value,
+            is_active
+         FROM game_type_master
+         WHERE game_id = ? AND game_type_id = ? AND is_active = 1;
+      `;
       const [gameTypeResults] = await con.execute(gameTypeQuery, [game_id, game_type_id]);
 
       if (gameTypeResults.length === 0) {
@@ -631,14 +657,14 @@ router.post('/game-details', async (req, res) => {
       const gameTypeDetails = gameTypeResults[0];
 
       const slotQuery = `
-       SELECT
-         Slot_id AS slot_id,
-         Start_date_time AS start_date_time,
-         End_date_time AS end_date_time,
-         is_active
-       FROM game_slot_configuration_master
-       WHERE game_id = ? AND game_type_id = ? AND is_active = 1;
-     `;
+         SELECT
+            Slot_id AS slot_id,
+            Start_date_time AS start_date_time,
+            End_date_time AS end_date_time,
+            is_active
+         FROM game_slot_configuration_master
+         WHERE game_id = ? AND game_type_id = ? AND is_active = 1;
+      `;
       const [slotResults] = await con.execute(slotQuery, [game_id, game_type_id]);
 
       const currentTime = moment().tz(timezone);
@@ -647,21 +673,13 @@ router.post('/game-details', async (req, res) => {
          .map(slot => {
             const startDateTime = moment(slot.start_date_time).tz(timezone);
             const endDateTime = moment(slot.end_date_time).tz(timezone);
-            const currentTime = moment().tz(timezone);
-
-            const gameTimeRemainingSeconds = endDateTime.diff(currentTime, 'seconds');
-            const minutes = Math.floor(gameTimeRemainingSeconds / 60);
-            const seconds = gameTimeRemainingSeconds % 60;
-            const game_time_remaining =
-               gameTimeRemainingSeconds > 0
-                  ? `${minutes} minute${minutes !== 1 ? 's' : ''} and ${seconds} second${seconds !== 1 ? 's' : ''}`
-                  : "Expired";
+            const game_time_remaining = endDateTime.diff(currentTime, 'seconds');
 
             return {
                ...slot,
                start_date_time: startDateTime.format('YYYY-MM-DD HH:mm:ss'),
                end_date_time: endDateTime.format('YYYY-MM-DD HH:mm:ss'),
-               game_time_remaining,
+               game_time_remaining: game_time_remaining > 0 ? game_time_remaining : 0,
             };
          })
          .filter(slot => {
@@ -670,30 +688,14 @@ router.post('/game-details', async (req, res) => {
             return currentTime.isBetween(startDateTime, endDateTime);
          });
 
-      if (filteredSlots.length === 0) {
-         return res.status(200).json({
-            status: true,
-            message: 'No slot available at the current time.',
-            gameDetails: {
-               ...gameDetails,
-               gameType: {
-                  game_type_id: gameTypeDetails.game_type_id,
-                  game_type_name: gameTypeDetails.game_type_name,
-                  game_max_digit_allowed: gameTypeDetails.game_max_digit_allowed,
-                  game_min_play_amount: gameTypeDetails.game_min_play_amount,
-                  game_max_play_amount: gameTypeDetails.game_max_play_amount,
-                  prize_value: gameTypeDetails.prize_value,
-               },
-               slotDetails: [],
-            },
-         });
-      }
+      const is_game_active = filteredSlots.length > 0 ? 1 : 0;
 
       res.status(200).json({
          status: true,
          message: 'Game details retrieved successfully',
          gameDetails: {
             ...gameDetails,
+            is_game_active,
             gameType: {
                game_type_id: gameTypeDetails.game_type_id,
                game_type_name: gameTypeDetails.game_type_name,
@@ -705,7 +707,6 @@ router.post('/game-details', async (req, res) => {
             slotDetails: filteredSlots,
          },
       });
-
 
    } catch (err) {
       console.error('Error:', err);
