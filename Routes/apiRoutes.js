@@ -8,6 +8,7 @@ const router = express.Router();
 
 const JWT_SECRET_KEY = 'your_jwt_secret_key';
 const TOKEN_EXPIRATION_DAYS = 60;
+const timezone = 'Asia/Kolkata';
 
 const verifyToken = (req, res, next) => {
    let token = req.headers["authorization"];
@@ -203,7 +204,7 @@ router.put("/forgot-password", verifyToken, async (req, res) => {
 
 //Version Check
 router.post('/version-check', async (req, res) => {
-   const { version_code, client_type, device_info, fcm_token, login, access_token } = req.headers;
+   const { version_code, client_type, device_info, fcm_token } = req.headers;
 
    if (!version_code || !client_type || !device_info || !fcm_token) {
       return res.status(400).json({
@@ -212,42 +213,35 @@ router.post('/version-check', async (req, res) => {
       });
    }
 
-   const isUserLoggedIn = login && access_token;
-   if (login && !access_token) {
-      return res.status(401).json({
-         status: false,
-         message: 'Missing access_token for logged-in user',
-      });
-   }
-
    try {
+      const clientTypes = client_type === 'ALL' ? ['IOS', 'ANDROID', 'WEB'] : [client_type];
+
       const versionQuery = `
          SELECT version_code, version_name, update_note, update_date, app_url, is_mandatory
          FROM app_version
-         WHERE client_type = ? AND is_active = 1
+         WHERE client_type IN (?) AND is_active = 1
          ORDER BY id DESC
          LIMIT 1
       `;
-      const [versionResult] = await con.query(versionQuery, [client_type]);
-
-      const timezone = 'Asia/Kolkata';
-      const formattedUpdateDate = moment(versionResult[0].update_date)
-         .tz(timezone)
-         .format('YYYY-MM-DD HH:mm:ss');
+      const [versionResult] = await con.query(versionQuery, [clientTypes]);
 
       if (!versionResult || versionResult.length === 0) {
          return res.status(404).json({
             status: false,
-            message: 'No active version found for the specified client type',
+            message: 'No active version found for the specified client type(s)',
          });
       }
+
+      const formattedUpdateDate = moment(versionResult[0].update_date)
+         .tz(timezone)
+         .format('YYYY-MM-DD HH:mm:ss');
 
       const configQuery = `
          SELECT id, config_key, value, client_type, is_active
          FROM app_configuration
-         WHERE client_type = ? AND is_active = 1
+         WHERE client_type IN (?) AND is_active = 1
       `;
-      const [configResult] = await con.query(configQuery, [client_type]);
+      const [configResult] = await con.query(configQuery, [clientTypes]);
 
       res.status(200).json({
          status: true,
@@ -647,7 +641,53 @@ router.post('/game-details', async (req, res) => {
      `;
       const [slotResults] = await con.execute(slotQuery, [game_id, game_type_id]);
 
-      const slotDetails = slotResults.length > 0 ? slotResults : [];
+      const currentTime = moment().tz(timezone);
+
+      const filteredSlots = slotResults
+         .map(slot => {
+            const startDateTime = moment(slot.start_date_time).tz(timezone);
+            const endDateTime = moment(slot.end_date_time).tz(timezone);
+            const currentTime = moment().tz(timezone);
+
+            const gameTimeRemainingSeconds = endDateTime.diff(currentTime, 'seconds');
+            const minutes = Math.floor(gameTimeRemainingSeconds / 60);
+            const seconds = gameTimeRemainingSeconds % 60;
+            const game_time_remaining =
+               gameTimeRemainingSeconds > 0
+                  ? `${minutes} minute${minutes !== 1 ? 's' : ''} and ${seconds} second${seconds !== 1 ? 's' : ''}`
+                  : "Expired";
+
+            return {
+               ...slot,
+               start_date_time: startDateTime.format('YYYY-MM-DD HH:mm:ss'),
+               end_date_time: endDateTime.format('YYYY-MM-DD HH:mm:ss'),
+               game_time_remaining,
+            };
+         })
+         .filter(slot => {
+            const startDateTime = moment(slot.start_date_time, 'YYYY-MM-DD HH:mm:ss');
+            const endDateTime = moment(slot.end_date_time, 'YYYY-MM-DD HH:mm:ss');
+            return currentTime.isBetween(startDateTime, endDateTime);
+         });
+
+      if (filteredSlots.length === 0) {
+         return res.status(200).json({
+            status: true,
+            message: 'No slot available at the current time.',
+            gameDetails: {
+               ...gameDetails,
+               gameType: {
+                  game_type_id: gameTypeDetails.game_type_id,
+                  game_type_name: gameTypeDetails.game_type_name,
+                  game_max_digit_allowed: gameTypeDetails.game_max_digit_allowed,
+                  game_min_play_amount: gameTypeDetails.game_min_play_amount,
+                  game_max_play_amount: gameTypeDetails.game_max_play_amount,
+                  prize_value: gameTypeDetails.prize_value,
+               },
+               slotDetails: [],
+            },
+         });
+      }
 
       res.status(200).json({
          status: true,
@@ -662,9 +702,11 @@ router.post('/game-details', async (req, res) => {
                game_max_play_amount: gameTypeDetails.game_max_play_amount,
                prize_value: gameTypeDetails.prize_value,
             },
-            slotDetails,
+            slotDetails: filteredSlots,
          },
       });
+
+
    } catch (err) {
       console.error('Error:', err);
       if (err.name === 'JsonWebTokenError') {
@@ -776,9 +818,19 @@ router.post('/game-all-details', async (req, res) => {
                      gameType.game_type_id,
                   ]);
 
+                  const slotsWithTimezone = slotResults.map((slot) => ({
+                     ...slot,
+                     start_date_time: moment(slot.start_date_time)
+                        .tz(timezone)
+                        .format('YYYY-MM-DD HH:mm:ss'),
+                     end_date_time: moment(slot.end_date_time)
+                        .tz(timezone)
+                        .format('YYYY-MM-DD HH:mm:ss'),
+                  }));
+
                   return {
                      ...gameType,
-                     slotDetails: slotResults.length > 0 ? slotResults : [],
+                     slotDetails: slotsWithTimezone.length > 0 ? slotsWithTimezone : [],
                   };
                })
             );
