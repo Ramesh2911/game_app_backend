@@ -759,10 +759,10 @@ router.post('/game-all-details', async (req, res) => {
       }
 
       const tokenQuery = `
-       SELECT user_id, token
-       FROM users
-       WHERE phone = ?;
-     `;
+         SELECT user_id, token
+         FROM users
+         WHERE phone = ?;
+      `;
       const [tokenResult] = await con.execute(tokenQuery, [login]);
 
       if (tokenResult.length === 0 || tokenResult[0].token !== access_token) {
@@ -773,10 +773,10 @@ router.post('/game-all-details', async (req, res) => {
       }
 
       const gameQuery = `
-       SELECT Game_id AS game_id, Game_name AS game_name, Game_pic AS game_pic, is_active
-       FROM game_master
-       WHERE is_active = 1;
-     `;
+         SELECT Game_id AS game_id, Game_name AS game_name, Game_pic AS game_pic, is_active
+         FROM game_master
+         WHERE is_active = 1;
+      `;
       const [gameResults] = await con.execute(gameQuery);
 
       if (gameResults.length === 0) {
@@ -789,49 +789,63 @@ router.post('/game-all-details', async (req, res) => {
       const gameDetails = await Promise.all(
          gameResults.map(async (game) => {
             const gameTypeQuery = `
-           SELECT
-             game_type_id AS game_type_id,
-             game_id AS game_id,
-             game_type_name AS game_type_name,
-             noOf_item_choose AS game_max_digit_allowed,
-             min_entry_fee AS game_min_play_amount,
-             max_entry_fee AS game_max_play_amount,
-             prize_value_noOf_times AS prize_value,
-             is_active
-           FROM game_type_master
-           WHERE game_id = ? AND is_active = 1;
-         `;
+               SELECT
+                  game_type_id AS game_type_id,
+                  game_id AS game_id,
+                  game_type_name AS game_type_name,
+                  noOf_item_choose AS game_max_digit_allowed,
+                  min_entry_fee AS game_min_play_amount,
+                  max_entry_fee AS game_max_play_amount,
+                  prize_value_noOf_times AS prize_value,
+                  is_active
+               FROM game_type_master
+               WHERE game_id = ? AND is_active = 1;
+            `;
             const [gameTypeResults] = await con.execute(gameTypeQuery, [game.game_id]);
 
             const gameTypesWithSlots = await Promise.all(
                gameTypeResults.map(async (gameType) => {
                   const slotQuery = `
-               SELECT
-                 Slot_id AS slot_id,
-                 Start_date_time AS start_date_time,
-                 End_date_time AS end_date_time,
-                 is_active
-               FROM game_slot_configuration_master
-               WHERE game_id = ? AND game_type_id = ? AND is_active = 1;
-             `;
+                     SELECT
+                        Slot_id AS slot_id,
+                        Start_date_time AS start_date_time,
+                        End_date_time AS end_date_time,
+                        is_active
+                     FROM game_slot_configuration_master
+                     WHERE game_id = ? AND game_type_id = ? AND is_active = 1;
+                  `;
                   const [slotResults] = await con.execute(slotQuery, [
                      gameType.game_id,
                      gameType.game_type_id,
                   ]);
 
-                  const slotsWithTimezone = slotResults.map((slot) => ({
-                     ...slot,
-                     start_date_time: moment(slot.start_date_time)
-                        .tz(timezone)
-                        .format('YYYY-MM-DD HH:mm:ss'),
-                     end_date_time: moment(slot.end_date_time)
-                        .tz(timezone)
-                        .format('YYYY-MM-DD HH:mm:ss'),
-                  }));
+                  const currentTime = moment().tz(timezone);
+
+                  const filteredSlots = slotResults
+                     .map((slot) => {
+                        const startDateTime = moment(slot.start_date_time).tz(timezone);
+                        const endDateTime = moment(slot.end_date_time).tz(timezone);
+                        const game_time_remaining = endDateTime.diff(currentTime, 'seconds');
+
+                        return {
+                           ...slot,
+                           start_date_time: startDateTime.format('YYYY-MM-DD HH:mm:ss'),
+                           end_date_time: endDateTime.format('YYYY-MM-DD HH:mm:ss'),
+                           game_time_remaining: game_time_remaining > 0 ? game_time_remaining : 0,
+                        };
+                     })
+                     .filter((slot) => {
+                        const startDateTime = moment(slot.start_date_time, 'YYYY-MM-DD HH:mm:ss');
+                        const endDateTime = moment(slot.end_date_time, 'YYYY-MM-DD HH:mm:ss');
+                        return currentTime.isBetween(startDateTime, endDateTime);
+                     });
+
+                  const is_game_active = filteredSlots.length > 0 ? 1 : 0;
 
                   return {
                      ...gameType,
-                     slotDetails: slotsWithTimezone.length > 0 ? slotsWithTimezone : [],
+                     is_game_active,
+                     slotDetails: filteredSlots,
                   };
                })
             );
