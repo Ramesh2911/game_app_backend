@@ -35,7 +35,7 @@ const verifyToken = (req, res, next) => {
    });
 };
 
-//Registration
+//User Registration
 router.post('/register', async (req, res) => {
    const { name, phone, email, password } = req.body;
 
@@ -87,6 +87,63 @@ router.post('/register', async (req, res) => {
    } catch (error) {
       console.error("Server error:", error);
       res.status(500).json({ status: false, message: 'Something went wrong' });
+   }
+});
+
+//Admin Registration
+router.post('/admin-register', async (req, res) => {
+   const { name, phone, email, password } = req.body;
+
+   if (!name || !phone || !email || !password) {
+      return res.status(400).json({ status: false, message: 'All fields are required!' });
+   }
+
+   const cleanedPhone = phone.replace(/\D/g, '');
+   const phoneRegex = /^[0-9]{10,15}$/;
+   if (!phoneRegex.test(cleanedPhone)) {
+      return res.status(400).json({ status: false, message: 'Phone number must be between 10 to 15 digits!' });
+   }
+
+   const emailRegex = /^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$/;
+   if (!emailRegex.test(email)) {
+      return res.status(400).json({ status: false, message: 'Invalid email format!' });
+   }
+
+   try {
+      const [existingAdmin] = await con.query(
+         'SELECT phone, email FROM app_admin_master WHERE phone = ? OR email = ?',
+         [cleanedPhone, email]
+      );
+
+      if (existingAdmin.length > 0) {
+         return res.status(400).json({
+            status: false,
+            message: 'Phone or Email is already registered!'
+         });
+      }
+
+      const hashedPassword = await bcrypt.hash(password, 10);
+
+      const insertQuery = `
+         INSERT INTO app_admin_master (
+          app_id, name, email, phone, password, is_locked, is_active,created_by,modified_by, created_at, updated_at
+         ) VALUES (1,?, ?, ?, ?, 0, 1,1,1, NOW(), NOW())
+      `;
+      const [result] = await con.query(insertQuery, [
+         name,
+         email,
+         cleanedPhone,
+         hashedPassword,
+      ]);
+
+      res.status(200).json({
+         status: true,
+         message: `Admin registered successfully with phone number ${cleanedPhone} and ${email}!`,
+         id: result.insertId,
+      });
+   } catch (error) {
+      console.error('Server error:', error);
+      res.status(500).json({ status: false, message: 'Something went wrong!' });
    }
 });
 
@@ -153,6 +210,78 @@ router.post("/authenticate", async (req, res) => {
       });
    }
 });
+
+//Admin Authenticate
+router.post("/admin-authenticate", async (req, res) => {
+   try {
+      const { phone, password } = req.body;
+
+      // Validate request body
+      if (!phone || !password) {
+         return res.status(400).json({
+            status: false,
+            message: "Phone and Password are required.",
+         });
+      }
+
+      // Query admin data
+      const query = `SELECT * FROM app_admin_master WHERE phone = ?`;
+      const [results] = await con.query(query, [phone]);
+
+      // Check if admin exists
+      if (results.length === 0) {
+         return res.status(401).json({
+            status: false,
+            message: "Invalid phone or password.",
+         });
+      }
+
+      const admin = results[0];
+
+      // Verify password
+      const isPasswordMatch = await bcrypt.compare(password, admin.password);
+      if (!isPasswordMatch) {
+         return res.status(401).json({
+            status: false,
+            message: "Invalid phone or password.",
+         });
+      }
+
+      // Generate JWT token
+      const token = jwt.sign({ id: admin.admin_id, phone: admin.phone }, JWT_SECRET_KEY, {
+         expiresIn: `${TOKEN_EXPIRATION_DAYS * 24 * 60 * 60}s`,
+      });
+
+      // Decode token to get expiration time
+      const decodedToken = jwt.decode(token);
+      const tokenExpiredOn = new Date(decodedToken.exp * 1000);
+
+      // Update token in database
+      await con.query("UPDATE app_admin_master SET token = ? WHERE admin_id = ?", [token, admin.admin_id]);
+
+      // Respond with admin data and token
+      return res.status(200).json({
+         status: true,
+         message: "Admin login successful.",
+         data: {
+            id: admin.admin_id,
+            name: admin.name,
+            phone: admin.phone,
+            email: admin.email,
+            token,
+            token_expired_on: tokenExpiredOn,
+         },
+      });
+
+   } catch (error) {
+      console.error("Error in admin-authenticate API:", error);
+      return res.status(500).json({
+         status: false,
+         message: "Server error. Please try again later.",
+      });
+   }
+});
+
 
 //Forgot password
 router.put("/forgot-password", verifyToken, async (req, res) => {
