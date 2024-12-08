@@ -126,8 +126,8 @@ router.post('/admin-register', async (req, res) => {
 
       const insertQuery = `
          INSERT INTO app_admin_master (
-          app_id, name, email, phone, password, is_locked, is_active,created_by,modified_by, created_at, updated_at
-         ) VALUES (1,?, ?, ?, ?, 0, 1,1,1, NOW(), NOW())
+          app_id, name, email, phone, password, is_locked, is_active,last_login_date,created_by,modified_by, created_at, updated_at
+         ) VALUES (1,?, ?, ?, ?, 0, 1,NULL,1,1, NOW(), NOW())
       `;
       const [result] = await con.query(insertQuery, [
          name,
