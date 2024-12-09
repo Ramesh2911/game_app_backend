@@ -832,15 +832,14 @@ router.post('/game-details', async (req, res) => {
             game_min_play_amount: gameTypeDetails.game_min_play_amount,
             game_max_play_amount: gameTypeDetails.game_max_play_amount,
             prize_value: gameTypeDetails.prize_value,
-            slot_id: filteredSlots.slot_id ,
-            start_date_time: filteredSlots.start_date_time,
-            end_date_time: filteredSlots[0]?.end_date_time,
             is_game_active: is_game_active,
-            is_active: filteredSlots.is_active ,
-            game_time_remaining: filteredSlots.game_time_remaining,
+            slot_id: filteredSlots[0]?.slot_id,
+            start_date_time: filteredSlots[0]?.start_date_time,
+            end_date_time: filteredSlots[0]?.end_date_time,
+            is_active: filteredSlots[0]?.is_active,
+            game_time_remaining: filteredSlots[0]?.game_time_remaining,
          },
       });
-
 
    } catch (err) {
       console.error('Error:', err);
