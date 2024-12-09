@@ -830,7 +830,6 @@ router.post('/game-details', async (req, res) => {
          },
       });
 
-
    } catch (err) {
       console.error('Error:', err);
       if (err.name === 'JsonWebTokenError') {
