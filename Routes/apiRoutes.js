@@ -99,51 +99,50 @@ router.post('/admin-register', async (req, res) => {
    }
 
    const cleanedPhone = phone.replace(/\D/g, '');
+
    const phoneRegex = /^[0-9]{10,15}$/;
    if (!phoneRegex.test(cleanedPhone)) {
-      return res.status(400).json({ status: false, message: 'Phone number must be between 10 to 15 digits!' });
+      return res.status(400).json({
+         status: false,
+         message: 'Phone number must be between 10 to 15 digits!'
+      });
    }
 
    const emailRegex = /^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$/;
    if (!emailRegex.test(email)) {
-      return res.status(400).json({ status: false, message: 'Invalid email format!' });
+      return res.status(400).json({
+         status: false,
+         message: 'Invalid email format. Please provide a valid email address.'
+      });
    }
 
    try {
-      const [existingAdmin] = await con.query(
-         'SELECT phone, email FROM app_admin_master WHERE phone = ? OR email = ?',
-         [cleanedPhone, email]
-      );
+      const [phoneCheckResult] = await con.query('SELECT phone FROM app_admin_master WHERE phone = ?', [phone]);
 
-      if (existingAdmin.length > 0) {
+      if (phoneCheckResult.length > 0) {
          return res.status(400).json({
             status: false,
-            message: 'Phone or Email is already registered!'
+            message: `Phone number ${phone} is already registered`
          });
       }
 
       const hashedPassword = await bcrypt.hash(password, 10);
 
       const insertQuery = `
-         INSERT INTO app_admin_master (
-          app_id, name, email, phone, password, is_locked, is_active,last_login_date,created_by,modified_by, created_at, updated_at
-         ) VALUES (1,?, ?, ?, ?, 0, 1,NULL,1,1, NOW(), NOW())
-      `;
-      const [result] = await con.query(insertQuery, [
-         name,
-         email,
-         cleanedPhone,
-         hashedPassword,
-      ]);
+      INSERT INTO app_admin_master (
+       app_id, name, email, phone, password, is_locked, is_active,last_login_date,created_by,modified_by, created_at, updated_at
+      ) VALUES (1,?, ?, ?, ?, 0, 1,NULL,1,1, NOW(), NOW())
+   `;
+      const [insertResult] = await con.query(insertQuery, [name, email, phone, hashedPassword]);
 
       res.status(200).json({
          status: true,
-         message: `Admin registered successfully with phone number ${cleanedPhone} and ${email}!`,
-         id: result.insertId,
+         message: `Admin registered successfully with phone number ${phone} and ${email}!`,
+         id: insertResult.insertId
       });
    } catch (error) {
-      console.error('Server error:', error);
-      res.status(500).json({ status: false, message: 'Something went wrong!' });
+      console.error("Server error:", error);
+      res.status(500).json({ status: false, message: 'Something went wrong' });
    }
 });
 
@@ -184,7 +183,6 @@ router.post("/authenticate", async (req, res) => {
       });
 
       const decodedToken = jwt.decode(token);
-
       const tokenExpiredOn = new Date(decodedToken.exp * 1000);
 
       await con.query("UPDATE users SET token = ? WHERE user_id = ?", [token, user.user_id]);
@@ -216,7 +214,6 @@ router.post("/admin-authenticate", async (req, res) => {
    try {
       const { phone, password } = req.body;
 
-      // Validate request body
       if (!phone || !password) {
          return res.status(400).json({
             status: false,
@@ -224,11 +221,9 @@ router.post("/admin-authenticate", async (req, res) => {
          });
       }
 
-      // Query admin data
       const query = `SELECT * FROM app_admin_master WHERE phone = ?`;
       const [results] = await con.query(query, [phone]);
 
-      // Check if admin exists
       if (results.length === 0) {
          return res.status(401).json({
             status: false,
@@ -236,10 +231,9 @@ router.post("/admin-authenticate", async (req, res) => {
          });
       }
 
-      const admin = results[0];
+      const user = results[0];
 
-      // Verify password
-      const isPasswordMatch = await bcrypt.compare(password, admin.password);
+      const isPasswordMatch = await bcrypt.compare(password, user.Password);
       if (!isPasswordMatch) {
          return res.status(401).json({
             status: false,
@@ -247,34 +241,29 @@ router.post("/admin-authenticate", async (req, res) => {
          });
       }
 
-      // Generate JWT token
-      const token = jwt.sign({ id: admin.admin_id, phone: admin.phone }, JWT_SECRET_KEY, {
+      const token = jwt.sign({ id: user.admin_id, phone: user.phone }, JWT_SECRET_KEY, {
          expiresIn: `${TOKEN_EXPIRATION_DAYS * 24 * 60 * 60}s`,
       });
 
-      // Decode token to get expiration time
       const decodedToken = jwt.decode(token);
       const tokenExpiredOn = new Date(decodedToken.exp * 1000);
 
-      // Update token in database
-      await con.query("UPDATE app_admin_master SET token = ? WHERE admin_id = ?", [token, admin.admin_id]);
+      await con.query("UPDATE app_admin_master SET token = ? WHERE admin_id = ?", [token, user.admin_id]);
 
-      // Respond with admin data and token
       return res.status(200).json({
          status: true,
-         message: "Admin login successful.",
+         message: "Login successfully.",
          data: {
-            id: admin.admin_id,
-            name: admin.name,
-            phone: admin.phone,
-            email: admin.email,
+            id: user.admin_id,
+            name: user.name,
+            phone: user.phone,
+            email: user.email,
             token,
             token_expired_on: tokenExpiredOn,
          },
       });
-
    } catch (error) {
-      console.error("Error in admin-authenticate API:", error);
+      console.error("Error in login API:", error);
       return res.status(500).json({
          status: false,
          message: "Server error. Please try again later.",
@@ -825,19 +814,19 @@ router.post('/game-details', async (req, res) => {
          gameDetails: {
             game_id: gameDetails.game_id,
             game_name: gameDetails.game_name,
-            game_pic: gameDetails.game_pic || null,
+            game_pic: gameDetails.game_pic,
             game_type_id: gameTypeDetails.game_type_id,
             game_type_name: gameTypeDetails.game_type_name,
             game_max_digit_allowed: gameTypeDetails.game_max_digit_allowed,
             game_min_play_amount: gameTypeDetails.game_min_play_amount,
             game_max_play_amount: gameTypeDetails.game_max_play_amount,
             prize_value: gameTypeDetails.prize_value,
-            slot_id: filteredSlots[0]?.slot_id || null,
+            is_game_active: is_game_active,
+            slot_id: filteredSlots[0]?.slot_id,
             start_date_time: filteredSlots[0]?.start_date_time,
             end_date_time: filteredSlots[0]?.end_date_time,
-            is_game_active: is_game_active,
-            is_active: filteredSlots[0]?.is_active || null,
-            game_time_remaining: filteredSlots[0]?.game_time_remaining || null,
+            is_active: filteredSlots[0]?.is_active,
+            game_time_remaining: filteredSlots[0]?.game_time_remaining,
          },
       });
 
