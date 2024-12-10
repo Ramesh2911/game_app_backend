@@ -803,12 +803,12 @@ router.post('/game-details', async (req, res) => {
          .filter(slot => {
             const startDateTime = moment(slot.start_date_time, 'YYYY-MM-DD HH:mm:ss');
             const endDateTime = moment(slot.end_date_time, 'YYYY-MM-DD HH:mm:ss');
-            // return currentTime.isBetween(startDateTime, endDateTime);
-             return currentTime.isBetween(startDateTime, endDateTime, null, '[)');
+            return currentTime.isBetween(startDateTime, endDateTime);
          });
 
       const is_game_active = filteredSlots.length > 0 ? 1 : 0;
 
+      
       res.status(200).json({
          status: true,
          message: 'Game details retrieved successfully',
@@ -823,11 +823,7 @@ router.post('/game-details', async (req, res) => {
             game_max_play_amount: gameTypeDetails.game_max_play_amount,
             prize_value: gameTypeDetails.prize_value,
             is_game_active: is_game_active,
-            slot_id: filteredSlots[0]?.slot_id,
-            start_date_time: filteredSlots[0]?.start_date_time,
-            end_date_time: filteredSlots[0]?.end_date_time,
-            is_active: filteredSlots[0]?.is_active,
-            game_time_remaining: filteredSlots[0]?.game_time_remaining,
+            slots: slotResults,  
          },
       });
 
