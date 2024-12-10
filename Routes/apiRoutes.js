@@ -10,6 +10,17 @@ const JWT_SECRET_KEY = 'your_jwt_secret_key';
 const TOKEN_EXPIRATION_DAYS = 60;
 const timezone = 'Asia/Kolkata';
 
+const formatDateForDatabase = (date) => {
+   const d = new Date(date);
+   const year = d.getFullYear();
+   const month = String(d.getMonth() + 1).padStart(2, '0');
+   const day = String(d.getDate()).padStart(2, '0');
+   const hours = String(d.getHours()).padStart(2, '0');
+   const minutes = String(d.getMinutes()).padStart(2, '0');
+   const seconds = String(d.getSeconds()).padStart(2, '0');
+   return `${year}-${month}-${day} ${hours}:${minutes}:${seconds}`;
+};
+
 const verifyToken = (req, res, next) => {
    let token = req.headers["authorization"];
 
@@ -775,60 +786,67 @@ router.post('/game-details', async (req, res) => {
       const gameTypeDetails = gameTypeResults[0];
 
       const slotQuery = `
-         SELECT
-            Slot_id AS slot_id,
-            Start_date_time AS start_date_time,
-            End_date_time AS end_date_time,
-            is_active
-         FROM game_slot_configuration_master
-         WHERE game_id = ? AND game_type_id = ? AND is_active = 1;
+         SELECT * FROM game_slot_configuration_master WHERE game_id = 1 AND game_type_id = 1 AND is_active = 1
+         AND game_slot_configuration_master.start_date_time <= CONVERT_TZ(NOW(), '+00:00', '+05:30')
+         AND game_slot_configuration_master.end_date_time >= CONVERT_TZ(NOW(), '+00:00', '+05:30');
       `;
+
       const [slotResults] = await con.execute(slotQuery, [game_id, game_type_id]);
 
-      const currentTime = moment().tz(timezone);
+      const is_game_active = slotResults.length > 0 ? 1 : 0;
 
-      const filteredSlots = slotResults
-         .map(slot => {
-            const startDateTime = moment(slot.start_date_time).tz(timezone);
-            const endDateTime = moment(slot.end_date_time).tz(timezone);
-            const game_time_remaining = endDateTime.diff(currentTime, 'seconds');
+      const activeSlot = slotResults.length > 0 ? slotResults[0] : null;
 
-            return {
-               ...slot,
-               start_date_time: startDateTime.format('YYYY-MM-DD HH:mm:ss'),
-               end_date_time: endDateTime.format('YYYY-MM-DD HH:mm:ss'),
-               game_time_remaining: game_time_remaining > 0 ? game_time_remaining : 0,
-            };
-         })
-         .filter(slot => {
-            const startDateTime = moment(slot.start_date_time, 'YYYY-MM-DD HH:mm:ss');
-            const endDateTime = moment(slot.end_date_time, 'YYYY-MM-DD HH:mm:ss');
-            return currentTime.isBetween(startDateTime, endDateTime);
+      if (activeSlot) {
+         const currentTime = new Date();
+         const endTime = new Date(activeSlot.end_date_time);
+         const timeRemaining = endTime - currentTime;
+
+
+         const secondsRemaining = Math.floor(timeRemaining / 1000);
+
+         const gameTimeRemaining = `${secondsRemaining}s`;
+
+
+         res.status(200).json({
+            status: true,
+            message: 'Game details retrieved successfully',
+            gameDetails: {
+               game_id: gameDetails.game_id,
+               game_name: gameDetails.game_name,
+               game_pic: gameDetails.game_pic,
+               game_type_id: gameTypeDetails.game_type_id,
+               game_type_name: gameTypeDetails.game_type_name,
+               game_max_digit_allowed: gameTypeDetails.game_max_digit_allowed,
+               game_min_play_amount: gameTypeDetails.game_min_play_amount,
+               game_max_play_amount: gameTypeDetails.game_max_play_amount,
+               prize_value: gameTypeDetails.prize_value,
+               is_game_active: is_game_active,
+               slot_id: activeSlot.slot_id,
+               start_date_time: formatDateForDatabase(activeSlot.start_date_time),
+               end_date_time: formatDateForDatabase(activeSlot.end_date_time),
+               is_active: activeSlot.is_active,
+               game_time_remaining: gameTimeRemaining,
+            },
          });
-
-      const is_game_active = filteredSlots.length > 0 ? 1 : 0;
-
-      res.status(200).json({
-         status: true,
-         message: 'Game details retrieved successfully',
-         gameDetails: {
-            game_id: gameDetails.game_id,
-            game_name: gameDetails.game_name,
-            game_pic: gameDetails.game_pic,
-            game_type_id: gameTypeDetails.game_type_id,
-            game_type_name: gameTypeDetails.game_type_name,
-            game_max_digit_allowed: gameTypeDetails.game_max_digit_allowed,
-            game_min_play_amount: gameTypeDetails.game_min_play_amount,
-            game_max_play_amount: gameTypeDetails.game_max_play_amount,
-            prize_value: gameTypeDetails.prize_value,
-            is_game_active: is_game_active,
-            slot_id: filteredSlots[0]?.slot_id,
-            start_date_time: filteredSlots[0]?.start_date_time,
-            end_date_time: filteredSlots[0]?.end_date_time,
-            is_active: filteredSlots[0]?.is_active,
-            game_time_remaining: filteredSlots[0]?.game_time_remaining,
-         },
-      });
+      } else {
+         res.status(200).json({
+            status: true,
+            message: 'Game details retrieved successfully',
+            gameDetails: {
+               game_id: gameDetails.game_id,
+               game_name: gameDetails.game_name,
+               game_pic: gameDetails.game_pic,
+               game_type_id: gameTypeDetails.game_type_id,
+               game_type_name: gameTypeDetails.game_type_name,
+               game_max_digit_allowed: gameTypeDetails.game_max_digit_allowed,
+               game_min_play_amount: gameTypeDetails.game_min_play_amount,
+               game_max_play_amount: gameTypeDetails.game_max_play_amount,
+               prize_value: gameTypeDetails.prize_value,
+               is_game_active: is_game_active,
+            },
+         });
+      }
 
    } catch (err) {
       console.error('Error:', err);
@@ -845,6 +863,9 @@ router.post('/game-details', async (req, res) => {
       });
    }
 });
+
+
+
 
 //Game all details
 router.post('/game-all-details', async (req, res) => {
