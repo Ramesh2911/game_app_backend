@@ -824,7 +824,7 @@ router.post('/game-details', async (req, res) => {
             game_max_play_amount: gameTypeDetails.game_max_play_amount,
             prize_value: gameTypeDetails.prize_value,
             is_game_active: is_game_active,
-            slots: filteredSlots,  
+            slots: slotResults,  
          },
       });
 
