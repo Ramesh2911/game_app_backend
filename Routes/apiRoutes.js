@@ -784,23 +784,18 @@ router.post('/game-details', async (req, res) => {
          WHERE game_id = ? AND game_type_id = ? AND is_active = 1;
       `;
       const [slotResults] = await con.execute(slotQuery, [game_id, game_type_id]);
-      console.log(slotResults,"rr")
       const currentTime = moment().tz(timezone);
 
       const filteredSlots = slotResults
          .map(slot => {
             const startDateTime = moment(slot.start_date_time, "YYYY-MM-DD HH:mm:ss").tz(timezone);
-             console.log(startDateTime,"tt")
             const endDateTime = moment(slot.end_date_time, "YYYY-MM-DD HH:mm:ss").tz(timezone);
-             console.log(endDateTime,"xx")
             const game_time_remaining = endDateTime.diff(currentTime, 'seconds');
 
             return {
                ...slot,
                start_date_time: startDateTime.format('YYYY-MM-DD HH:mm:ss'),
-                 console.log(start_date_time,'qq')
                end_date_time: endDateTime.format('YYYY-MM-DD HH:mm:ss'),
-                   console.log(end_date_time,'aa')
                game_time_remaining: game_time_remaining > 0 ? game_time_remaining : 0,
             };
          })
