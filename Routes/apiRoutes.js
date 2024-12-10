@@ -803,7 +803,8 @@ router.post('/game-details', async (req, res) => {
          .filter(slot => {
             const startDateTime = moment(slot.start_date_time, 'YYYY-MM-DD HH:mm:ss');
             const endDateTime = moment(slot.end_date_time, 'YYYY-MM-DD HH:mm:ss');
-            return currentTime.isBetween(startDateTime, endDateTime);
+            // return currentTime.isBetween(startDateTime, endDateTime);
+             return currentTime.isBetween(startDateTime, endDateTime, null, '[)');
          });
 
       const is_game_active = filteredSlots.length > 0 ? 1 : 0;
