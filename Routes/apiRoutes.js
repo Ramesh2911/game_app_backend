@@ -785,6 +785,7 @@ router.post('/game-details', async (req, res) => {
       `;
       const [slotResults] = await con.execute(slotQuery, [game_id, game_type_id]);
 
+      const timezone = 'Asia/Kolkata';
       const currentTime = moment().tz(timezone);
 
       const filteredSlots = slotResults
