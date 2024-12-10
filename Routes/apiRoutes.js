@@ -785,13 +785,12 @@ router.post('/game-details', async (req, res) => {
       `;
       const [slotResults] = await con.execute(slotQuery, [game_id, game_type_id]);
 
-      const timezone = 'Asia/Kolkata';
-      const currentTime = moment().tz(timezone);
+     const currentTime = moment().tz(timezone);
 
       const filteredSlots = slotResults
          .map(slot => {
-            const startDateTime = moment(slot.start_date_time).tz(timezone);
-            const endDateTime = moment(slot.end_date_time).tz(timezone);
+            const startDateTime = moment(slot.start_date_time, "YYYY-MM-DD HH:mm:ss").tz(timezone);
+           const endDateTime = moment(slot.end_date_time, "YYYY-MM-DD HH:mm:ss").tz(timezone);
             const game_time_remaining = endDateTime.diff(currentTime, 'seconds');
 
             return {
@@ -824,7 +823,7 @@ router.post('/game-details', async (req, res) => {
             game_max_play_amount: gameTypeDetails.game_max_play_amount,
             prize_value: gameTypeDetails.prize_value,
             is_game_active: is_game_active,
-            slots: slotResults,  
+            slots: filteredSlots,  
          },
       });
 
