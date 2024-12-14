@@ -3,12 +3,35 @@ import con from "../config/db.js";
 import jwt from "jsonwebtoken";
 import bcrypt from 'bcryptjs';
 import moment from "moment-timezone";
+import multer from "multer";
+import path from "path";
+import { fileURLToPath } from 'url';
+import fs from 'fs';
 
 const router = express.Router();
 
 const JWT_SECRET_KEY = 'your_jwt_secret_key';
 const TOKEN_EXPIRATION_DAYS = 60;
 const timezone = 'Asia/Kolkata';
+
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename);
+const uploadDir = path.join(__dirname, '../uploads');
+
+if (!fs.existsSync(uploadDir)) {
+   fs.mkdirSync(uploadDir, { recursive: true });
+}
+
+const storage = multer.diskStorage({
+   destination: (req, file, cb) => {
+      cb(null, uploadDir);
+   },
+   filename: (req, file, cb) => {
+      cb(null, `${Date.now()}-${file.originalname}`);
+   },
+});
+
+const upload = multer({ storage: storage });
 
 const formatDateForDatabase = (date) => {
    const d = new Date(date);
@@ -492,8 +515,124 @@ router.post('/user-info', async (req, res) => {
 });
 
 //Game list
+// router.post('/game-list', async (req, res) => {
+//    const { user_id } = req.body;
+//    const {
+//       version_code,
+//       client_type,
+//       device_info,
+//       fcm_token,
+//       login,
+//       access_token,
+//    } = req.headers;
+
+//    if (
+//       !version_code ||
+//       !client_type ||
+//       !device_info ||
+//       !fcm_token ||
+//       !login ||
+//       !access_token
+//    ) {
+//       return res.status(400).json({
+//          status: false,
+//          message: 'Missing required headers',
+//       });
+//    }
+
+//    if (!user_id) {
+//       return res.status(400).json({
+//          status: false,
+//          message: 'Missing user_id in request body',
+//       });
+//    }
+
+//    try {
+//       const decoded = jwt.verify(access_token, JWT_SECRET_KEY);
+//       if (!decoded) {
+//          return res.status(401).json({
+//             status: false,
+//             message: 'Invalid or expired access token.',
+//          });
+//       }
+
+//       const tokenQuery = `
+//            SELECT user_id, token
+//            FROM users
+//            WHERE phone = ?;
+//        `;
+//       const [tokenResult] = await con.execute(tokenQuery, [login]);
+
+//       if (tokenResult.length === 0 || tokenResult[0].token !== access_token) {
+//          return res.status(401).json({
+//             status: false,
+//             message: 'Access token mismatch or user not found.',
+//          });
+//       }
+
+//       if (tokenResult[0].user_id !== parseInt(user_id, 10)) {
+//          return res.status(403).json({
+//             status: false,
+//             message: 'User ID does not match the authenticated user.',
+//          });
+//       }
+
+//       const gameQuery = `
+//            SELECT game_id, app_id, game_name, game_pic, is_active
+//            FROM game_master
+//            WHERE is_active = 1 AND is_deleted = 0;
+//        `;
+//       const [games] = await con.execute(gameQuery);
+
+//       const currentTime = moment();
+
+//       const gameList = await Promise.all(
+//          games.map(async (game) => {
+//             const slotQuery = `
+//                    SELECT COUNT(*) AS active_slots
+//                    FROM game_slot_configuration_master
+//                    WHERE game_id = ?
+//                      AND is_active = 1
+//                      AND is_deleted = 0
+//                      AND ? BETWEEN start_date_time AND end_date_time;
+//                `;
+//             const [slotResults] = await con.execute(slotQuery, [
+//                game.game_id,
+//                currentTime.format('YYYY-MM-DD HH:mm:ss'),
+//             ]);
+
+//             const is_game_active = slotResults[0].active_slots > 0 ? 1 : 0;
+
+//             return {
+//                ...game,
+//                is_game_active,
+//             };
+//          })
+//       );
+
+//       res.status(200).json({
+//          status: true,
+//          message: 'Game list retrieved successfully',
+//          gameList,
+//       });
+//    } catch (err) {
+//       console.error('Error:', err);
+//       if (err.name === 'JsonWebTokenError') {
+//          return res.status(401).json({
+//             status: false,
+//             message: 'Invalid or expired access token.',
+//          });
+//       }
+
+//       res.status(500).json({
+//          status: false,
+//          message: 'Internal server error',
+//       });
+//    }
+// });
+
 router.post('/game-list', async (req, res) => {
-   const { user_id } = req.body;
+   const { user_id, type } = req.body;
    const {
       version_code,
       client_type,
@@ -503,25 +642,35 @@ router.post('/game-list', async (req, res) => {
       access_token,
    } = req.headers;
 
-   if (
-      !version_code ||
-      !client_type ||
-      !device_info ||
-      !fcm_token ||
-      !login ||
-      !access_token
-   ) {
+   if (!type || !['USER', 'ADMIN'].includes(type)) {
       return res.status(400).json({
          status: false,
-         message: 'Missing required headers',
+         message: 'Invalid or missing type field. Allowed values are "USER" or "ADMIN".',
       });
    }
 
-   if (!user_id) {
-      return res.status(400).json({
-         status: false,
-         message: 'Missing user_id in request body',
-      });
+   if (type === 'USER') {
+      if (
+         !version_code ||
+         !client_type ||
+         !device_info ||
+         !fcm_token ||
+         !login ||
+         !access_token ||
+         !user_id
+      ) {
+         return res.status(400).json({
+            status: false,
+            message: 'Missing required fields for USER login.',
+         });
+      }
+   } else if (type === 'ADMIN') {
+      if (!login || !access_token) {
+         return res.status(400).json({
+            status: false,
+            message: 'Missing required fields for ADMIN login (login and access_token).',
+         });
+      }
    }
 
    try {
@@ -533,32 +682,50 @@ router.post('/game-list', async (req, res) => {
          });
       }
 
-      const tokenQuery = `
-           SELECT user_id, token
-           FROM users
-           WHERE phone = ?;
-       `;
-      const [tokenResult] = await con.execute(tokenQuery, [login]);
+      if (type === 'USER') {
+         const tokenQuery = `
+            SELECT user_id, token
+            FROM users
+            WHERE phone = ?;
+         `;
+         const [tokenResult] = await con.execute(tokenQuery, [login]);
 
-      if (tokenResult.length === 0 || tokenResult[0].token !== access_token) {
-         return res.status(401).json({
-            status: false,
-            message: 'Access token mismatch or user not found.',
-         });
+         if (tokenResult.length === 0 || tokenResult[0].token !== access_token) {
+            return res.status(401).json({
+               status: false,
+               message: 'Access token mismatch or user not found.',
+            });
+         }
+
+         if (tokenResult[0].user_id !== parseInt(user_id, 10)) {
+            return res.status(403).json({
+               status: false,
+               message: 'User ID does not match the authenticated user.',
+            });
+         }
       }
 
-      if (tokenResult[0].user_id !== parseInt(user_id, 10)) {
-         return res.status(403).json({
-            status: false,
-            message: 'User ID does not match the authenticated user.',
-         });
+      if (type === 'ADMIN') {
+         const adminQuery = `
+            SELECT admin_id, token
+            FROM app_admin_master
+            WHERE phone = ?;
+         `;
+         const [adminResult] = await con.execute(adminQuery, [login]);
+
+         if (adminResult.length === 0 || adminResult[0].token !== access_token) {
+            return res.status(401).json({
+               status: false,
+               message: 'Access token mismatch or admin not found.',
+            });
+         }
       }
 
       const gameQuery = `
-           SELECT game_id, app_id, game_name, game_pic, is_active
-           FROM game_master
-           WHERE is_active = 1 AND is_deleted = 0;
-       `;
+         SELECT game_id, app_id, game_name, game_pic, is_active
+         FROM game_master
+         WHERE is_active = 1 AND is_deleted = 0;
+      `;
       const [games] = await con.execute(gameQuery);
 
       const currentTime = moment();
@@ -566,13 +733,13 @@ router.post('/game-list', async (req, res) => {
       const gameList = await Promise.all(
          games.map(async (game) => {
             const slotQuery = `
-                   SELECT COUNT(*) AS active_slots
-                   FROM game_slot_configuration_master
-                   WHERE game_id = ?
-                     AND is_active = 1
-                     AND is_deleted = 0
-                     AND ? BETWEEN start_date_time AND end_date_time;
-               `;
+               SELECT COUNT(*) AS active_slots
+               FROM game_slot_configuration_master
+               WHERE game_id = ?
+                 AND is_active = 1
+                 AND is_deleted = 0
+                 AND ? BETWEEN start_time AND end_time;
+            `;
             const [slotResults] = await con.execute(slotQuery, [
                game.game_id,
                currentTime.format('YYYY-MM-DD HH:mm:ss'),
@@ -610,7 +777,7 @@ router.post('/game-list', async (req, res) => {
 
 //Game type list
 router.post('/game-type-list', async (req, res) => {
-   const { game_id } = req.body;
+   const { game_id, type } = req.body;
    const {
       version_code,
       client_type,
@@ -620,25 +787,35 @@ router.post('/game-type-list', async (req, res) => {
       access_token,
    } = req.headers;
 
-   if (
-      !version_code ||
-      !client_type ||
-      !device_info ||
-      !fcm_token ||
-      !login ||
-      !access_token
-   ) {
+   if (!type || !['USER', 'ADMIN'].includes(type)) {
       return res.status(400).json({
          status: false,
-         message: 'Missing required headers',
+         message: 'Invalid or missing type field. Allowed values are "USER" or "ADMIN".',
       });
    }
 
-   if (!game_id) {
-      return res.status(400).json({
-         status: false,
-         message: 'Missing game_id in request body',
-      });
+   if (type === 'USER') {
+      if (
+         !version_code ||
+         !client_type ||
+         !device_info ||
+         !fcm_token ||
+         !login ||
+         !access_token ||
+         !game_id
+      ) {
+         return res.status(400).json({
+            status: false,
+            message: 'Missing required fields for USER login.',
+         });
+      }
+   } else if (type === 'ADMIN') {
+      if (!login || !access_token || !game_id) {
+         return res.status(400).json({
+            status: false,
+            message: 'Missing required fields for ADMIN login (login and access_token).',
+         });
+      }
    }
 
    try {
@@ -650,18 +827,43 @@ router.post('/game-type-list', async (req, res) => {
          });
       }
 
-      const tokenQuery = `
-       SELECT user_id, token
-       FROM users
-       WHERE phone = ?;
-     `;
-      const [tokenResult] = await con.execute(tokenQuery, [login]);
+      if (type === 'USER') {
+         const tokenQuery = `
+            SELECT user_id, token
+            FROM users
+            WHERE phone = ?;
+         `;
+         const [tokenResult] = await con.execute(tokenQuery, [login]);
 
-      if (tokenResult.length === 0 || tokenResult[0].token !== access_token) {
-         return res.status(401).json({
-            status: false,
-            message: 'Access token mismatch or user not found.',
-         });
+         if (tokenResult.length === 0 || tokenResult[0].token !== access_token) {
+            return res.status(401).json({
+               status: false,
+               message: 'Access token mismatch or user not found.',
+            });
+         }
+
+         if (tokenResult[0].user_id !== parseInt(user_id, 10)) {
+            return res.status(403).json({
+               status: false,
+               message: 'User ID does not match the authenticated user.',
+            });
+         }
+      }
+
+      if (type === 'ADMIN') {
+         const adminQuery = `
+            SELECT admin_id, token
+            FROM app_admin_master
+            WHERE phone = ?;
+         `;
+         const [adminResult] = await con.execute(adminQuery, [login]);
+
+         if (adminResult.length === 0 || adminResult[0].token !== access_token) {
+            return res.status(401).json({
+               status: false,
+               message: 'Access token mismatch or admin not found.',
+            });
+         }
       }
 
       const query = `
@@ -786,9 +988,8 @@ router.post('/game-details', async (req, res) => {
       const gameTypeDetails = gameTypeResults[0];
 
       const slotQuery = `
-         SELECT * FROM game_slot_configuration_master WHERE game_id = 1 AND game_type_id = 1 AND is_active = 1
-         AND game_slot_configuration_master.start_date_time <= CONVERT_TZ(NOW(), '+00:00', '+05:30')
-         AND game_slot_configuration_master.end_date_time >= CONVERT_TZ(NOW(), '+00:00', '+05:30');
+       SELECT * FROM game_slot_configuration_master WHERE game_id = ? AND game_type_id = ? AND is_active = 1 AND game_slot_configuration_master.start_time <=(NOW()) AND game_slot_configuration_master.end_time >=(NOW());
+
       `;
 
       const [slotResults] = await con.execute(slotQuery, [game_id, game_type_id]);
@@ -799,13 +1000,13 @@ router.post('/game-details', async (req, res) => {
 
       if (activeSlot) {
          const currentTime = new Date();
-         const endTime = new Date(activeSlot.end_date_time);
+         const endTimeString = activeSlot.end_time;
+         const currentDate = currentTime.toISOString().split('T')[0];
+         const endTime = new Date(`${currentDate}T${endTimeString}`);
+
          const timeRemaining = endTime - currentTime;
-
-
-         const secondsRemaining = Math.floor(timeRemaining / 1000);
-
-         const gameTimeRemaining = `${secondsRemaining}s`;
+         const secondsRemaining = timeRemaining > 0 ? Math.floor(timeRemaining / 1000) : 0;
+         const gameTimeRemaining = secondsRemaining > 0 ? `${secondsRemaining}s` : 'Time Expired';
 
 
          res.status(200).json({
@@ -823,8 +1024,8 @@ router.post('/game-details', async (req, res) => {
                prize_value: gameTypeDetails.prize_value,
                is_game_active: is_game_active,
                slot_id: activeSlot.slot_id,
-               start_date_time: formatDateForDatabase(activeSlot.start_date_time),
-               end_date_time: formatDateForDatabase(activeSlot.end_date_time),
+               start_time: activeSlot.start_time,
+               end_time: activeSlot.end_time,
                is_active: activeSlot.is_active,
                game_time_remaining: gameTimeRemaining,
             },
@@ -863,9 +1064,6 @@ router.post('/game-details', async (req, res) => {
       });
    }
 });
-
-
-
 
 //Game all details
 router.post('/game-all-details', async (req, res) => {
@@ -949,46 +1147,19 @@ router.post('/game-all-details', async (req, res) => {
             const gameTypesWithSlots = await Promise.all(
                gameTypeResults.map(async (gameType) => {
                   const slotQuery = `
-                     SELECT
-                        Slot_id AS slot_id,
-                        Start_date_time AS start_date_time,
-                        End_date_time AS end_date_time,
-                        is_active
-                     FROM game_slot_configuration_master
-                     WHERE game_id = ? AND game_type_id = ? AND is_active = 1;
-                  `;
-                  const [slotResults] = await con.execute(slotQuery, [
-                     gameType.game_id,
-                     gameType.game_type_id,
-                  ]);
+         SELECT * FROM game_slot_configuration_master WHERE game_id = ? AND game_type_id = ? AND is_active = 1
+         AND game_slot_configuration_master.start_time <= (NOW())
+         AND game_slot_configuration_master.end_time >= (NOW());
+      `;
 
-                  const currentTime = moment().tz(timezone);
+                  const [slotResults] = await con.execute(slotQuery, [gameType.game_id, gameType.game_type_id]);
 
-                  const filteredSlots = slotResults
-                     .map((slot) => {
-                        const startDateTime = moment(slot.start_date_time).tz(timezone);
-                        const endDateTime = moment(slot.end_date_time).tz(timezone);
-                        const game_time_remaining = endDateTime.diff(currentTime, 'seconds');
-
-                        return {
-                           ...slot,
-                           start_date_time: startDateTime.format('YYYY-MM-DD HH:mm:ss'),
-                           end_date_time: endDateTime.format('YYYY-MM-DD HH:mm:ss'),
-                           game_time_remaining: game_time_remaining > 0 ? game_time_remaining : 0,
-                        };
-                     })
-                     .filter((slot) => {
-                        const startDateTime = moment(slot.start_date_time, 'YYYY-MM-DD HH:mm:ss');
-                        const endDateTime = moment(slot.end_date_time, 'YYYY-MM-DD HH:mm:ss');
-                        return currentTime.isBetween(startDateTime, endDateTime);
-                     });
-
-                  const is_game_active = filteredSlots.length > 0 ? 1 : 0;
+                  const is_game_active = slotResults.length > 0 ? 1 : 0;
 
                   return {
                      ...gameType,
                      is_game_active,
-                     slotDetails: filteredSlots,
+                     slotDetails: slotResults,
                   };
                })
             );
@@ -1110,6 +1281,263 @@ router.post('/user-game-save', async (req, res) => {
       res.status(500).json({
          status: false,
          message: 'Internal server error',
+      });
+   }
+});
+
+// Game Create
+router.post('/create-game', upload.single('game_pic'), async (req, res) => {
+   const {
+      game_name,
+      game_type_name,
+      min_entry_fee,
+      max_entry_fee,
+      noOf_item_choose,
+      prize_value_noOf_times,
+      start_date,
+      end_date,
+      is_active
+   } = req.body;
+
+   console.log(req.body, 'Received request body');
+
+   if (!game_name || !game_type_name || !min_entry_fee || !max_entry_fee || !noOf_item_choose || !prize_value_noOf_times || !is_active) {
+      return res.status(400).json({
+         status: false,
+         message: 'Missing required body parameters',
+      });
+   }
+
+   const game_pic = req.file ? req.file.filename : '';
+   if (!game_pic) {
+      return res.status(400).json({
+         status: false,
+         message: 'Missing game image (game_pic)',
+      });
+   }
+
+   const insertGameQuery = `INSERT INTO game_master
+      (game_name, game_pic, is_active,start_date,end_date, app_id, created_by, updated_by)
+      VALUES (?, ?, ?, ?, ?, ?,?,?)`;
+
+   const gameValues = [game_name, game_pic, is_active, start_date, end_date, 1, 1, 1];
+
+   try {
+      const [gameResult] = await con.query(insertGameQuery, gameValues);
+
+      const game_id = gameResult.insertId;
+
+      const insertGameTypeQuery = `INSERT INTO game_type_master
+         (game_id, game_type_name, min_entry_fee, max_entry_fee, noOf_item_choose, prize_value_noOf_times, app_id, created_by, updated_by)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`;
+
+      const gameTypeValues = [
+         game_id,
+         game_type_name,
+         min_entry_fee,
+         max_entry_fee,
+         noOf_item_choose,
+         prize_value_noOf_times,
+         1,
+         1,
+         1
+      ];
+
+      await con.query(insertGameTypeQuery, gameTypeValues);
+
+      res.status(200).json({ status: true, message: 'Game created successfully' });
+   } catch (err) {
+      console.error(err);
+      res.status(500).json({ status: false, error: 'Internal Server Error' });
+   }
+});
+
+//Slot Create
+router.post('/create-slot', async (req, res) => {
+   try {
+      const { game_id, game_type_id, start_time, end_time } = req.body;
+
+      // Input Validation
+      if (!game_id || !game_type_id || !start_time || !end_time) {
+         return res.status(400).json({
+            status: false,
+            message: 'Invalid input. Please provide all required fields.'
+         });
+      }
+
+      // Ensure start_time and end_time are arrays
+      const startTimes = Array.isArray(start_time) ? start_time : [start_time];
+      const endTimes = Array.isArray(end_time) ? end_time : [end_time];
+
+      if (startTimes.length !== endTimes.length) {
+         return res.status(400).json({
+            status: false,
+            message: 'start_time and end_time must have matching lengths.'
+         });
+      }
+
+      // Fixed/Default Values
+      const app_id = 1; // Fixed value
+      const created_by = 1; // Fixed value
+      const modified_by = 1; // Fixed value
+      const is_active = 1;  // Default value
+      const is_deleted = 0; // Default value
+
+      // Construct values array for bulk insertion
+      const values = startTimes.map((start, index) => [
+         game_id,
+         game_type_id,
+         app_id,
+         start,          // Start time
+         endTimes[index], // Matching end time
+         is_active,
+         is_deleted,
+         created_by,
+         modified_by
+      ]);
+
+      // SQL Query for Bulk Insertion
+      const query = `
+         INSERT INTO game_slot_configuration_master
+         (game_id, game_type_id, app_id, start_time, end_time, is_active, is_deleted, created_by, modified_by)
+         VALUES ?
+      `;
+
+      // Execute Query
+      const [result] = await con.query(query, [values]);
+
+      // Success Response
+      res.status(200).json({
+         status: true,
+         message: 'Slots created successfully!',
+         insertedRows: result.affectedRows
+      });
+
+   } catch (error) {
+      console.error('Error inserting slot data:', error);
+      res.status(500).json({
+         status: false,
+         message: 'Failed to create slots. Please try again.',
+         error: error.message
+      });
+   }
+});
+
+
+
+//Wallet Details
+router.post('/wallet-details', async (req, res) => {
+   try {
+      // Validate headers
+      const {
+         version_code,
+         client_type,
+         device_info,
+         fcm_token,
+         login,
+         access_token,
+      } = req.headers;
+
+      if (!version_code || !client_type || !device_info || !fcm_token || !login || !access_token) {
+         return res.status(400).json({
+            status: false,
+            message: "Missing required headers."
+         });
+      }
+
+      // Validate body
+      const { user_id } = req.body;
+      if (!user_id) {
+         return res.status(400).json({
+            status: false,
+            message: "Missing user_id in the request body."
+         });
+      }
+
+      // Fetch wallet details from database
+      const query = `SELECT wallet_amount AS wallet_amount, 10 AS min_recharge_amount, 1000 AS max_recharge_amount, 500 AS min_withdrawal_amount FROM user_wallet_master WHERE user_id = ?`;
+      const [results] = await con.execute(query, [user_id]);
+
+      if (results.length === 0) {
+         return res.status(404).json({
+            status: false,
+            message: "User wallet details not found."
+         });
+      }
+
+      // Respond with wallet details
+      res.status(200).json({
+         status: true,
+         message: "Wallet details fetched successfully.",
+         data: results[0],
+      });
+   } catch (err) {
+      console.error('Error:', err);
+      res.status(500).json({
+         status: false,
+         message: "An error occurred while fetching wallet details."
+      });
+   }
+});
+
+//Wallet transactions
+router.post('/wallet-transactions', async (req, res) => {
+   try {
+      // Validate headers
+      const {
+         version_code,
+         client_type,
+         device_info,
+         fcm_token,
+         login,
+         access_token,
+      } = req.headers;
+
+      if (!version_code || !client_type || !device_info || !fcm_token || !login || !access_token) {
+         return res.status(400).json({
+            status: false,
+            message: "Missing required headers."
+         });
+      }
+
+      // Validate body
+      const { wallet_id } = req.body;
+      if (!wallet_id) {
+         return res.status(400).json({
+            status: false,
+            message: "Missing user_id or wallet_id in the request body."
+         });
+      }
+
+      // Fetch wallet transactions for the last 30 days
+      const query = `
+       SELECT user_wallet_transaction_id AS transactionId, wallet_id AS walletId, game_id AS gameId, particulars, details, current_wallet_amount AS currentWalletAmount, created_at AS createdAt
+       FROM user_wallet_transaction_history
+       WHERE wallet_id = ? AND created_at >= NOW() - INTERVAL 30 DAY
+       ORDER BY created_at DESC`;
+
+      const [results] = await con.execute(query, [wallet_id]);
+
+
+
+      if (results.length === 0) {
+         return res.status(404).json({
+            status: false,
+            message: "No wallet transactions found for the last 30 days."
+         });
+      }
+
+      // Respond with wallet transactions
+      res.status(200).json({
+         status: true,
+         message: "Wallet transactions fetched successfully.",
+         data: results,
+      });
+   } catch (err) {
+      console.error('Error:', err);
+      res.status(500).json({
+         status: false,
+         message: "An error occurred while fetching wallet transactions."
       });
    }
 });
