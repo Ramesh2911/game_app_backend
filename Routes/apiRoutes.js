@@ -1334,10 +1334,192 @@ router.post('/create-slot', async (req, res) => {
    }
 });
 
+//Add Money
+router.post('/add-money', async (req, res) => {
+   const {
+      version_code,
+      client_type,
+      device_info,
+      fcm_token,
+      login,
+      access_token,
+   } = req.headers;
+
+   const { amount, transaction_id } = req.body;
+
+   if (
+      !version_code ||
+      !client_type ||
+      !device_info ||
+      !fcm_token ||
+      !login ||
+      !access_token
+   ) {
+      return res.status(400).json({
+         status: false,
+         message: 'Missing required headers',
+      });
+   }
+
+   if (!amount || !transaction_id) {
+      return res.status(400).json({
+         status: false,
+         message: 'Missing required fields in body',
+      });
+   }
+
+   try {
+      const decoded = jwt.verify(access_token, JWT_SECRET_KEY);
+      if (!decoded) {
+         return res.status(401).json({
+            status: false,
+            message: 'Invalid or expired access token',
+         });
+      }
+
+      const userQuery = `
+         SELECT user_id, token
+         FROM users
+         WHERE phone = ? AND token = ?;
+      `;
+      const [userResult] = await con.execute(userQuery, [login, access_token]);
+
+      if (userResult.length === 0) {
+         return res.status(401).json({
+            status: false,
+            message: 'Invalid login or access token',
+         });
+      }
+
+      const user_id = userResult[0].user_id;
+
+      const walletQuery = `
+         INSERT INTO user_wallet_master (user_id, app_id, wallet_amount, transaction_id, created_at, updated_at)
+         VALUES (?, ?, ?, ?, NOW(), NOW());
+      `;
+      await con.execute(walletQuery, [user_id, 1, amount, transaction_id]);
+
+      res.status(200).json({
+         status: true,
+         message: 'Money request sent successfully !',
+      });
+   } catch (err) {
+      console.error('Error:', err);
+      if (err.name === 'JsonWebTokenError') {
+         return res.status(401).json({
+            status: false,
+            message: 'Invalid or expired access token',
+         });
+      }
+
+      res.status(500).json({
+         status: false,
+         message: 'Internal server error',
+      });
+   }
+});
+
+//user wallet info
+router.post('/user-wallet-info', async (req, res) => {
+   const { login, access_token } = req.headers;
+
+   try {
+      const adminQuery = `
+         SELECT admin_id, token
+         FROM app_admin_master
+         WHERE phone = ?;
+      `;
+      const [adminResult] = await con.execute(adminQuery, [login]);
+
+      if (adminResult.length === 0 || adminResult[0].token !== access_token) {
+         return res.status(401).json({
+            status: false,
+            message: 'Access token mismatch or admin not found.',
+            data: []
+         });
+      }
+
+      const query = `
+         SELECT
+            uwm.user_id,
+            uwm.wallet_id,
+            uwm.wallet_amount,
+            uwm.transaction_id,
+            CASE
+               WHEN uwm.status = 0 THEN 'Pending'
+               WHEN uwm.status = 1 THEN 'Approved'
+               WHEN uwm.status = 2 THEN 'Rejected'
+               ELSE 'Unknown'
+            END AS status,
+            uwm.created_at,
+            u.name,
+            u.email,
+            u.phone
+         FROM
+            user_wallet_master uwm
+         INNER JOIN
+            users u
+         ON
+            uwm.user_id = u.user_id;
+      `;
+
+      const [results] = await con.execute(query);
+
+      const formattedResults = results.map((row) => ({
+         ...row,
+         created_at: moment(row.created_at).format('YYYY-MM-DD HH:mm:ss'),
+      }));
+
+      if (formattedResults.length === 0) {
+         return res.status(200).json({
+            status: true,
+            data: [],
+            message: 'No user or wallet data found.'
+         });
+      }
+
+      res.status(200).json({
+         status: true,
+         data: formattedResults,
+         message: 'User wallet data retrieved successfully.'
+      });
+   } catch (err) {
+      console.error('Error fetching user wallet info:', err);
+      res.status(500).json({
+         status: false,
+         data: [],
+         message: 'Internal server error.'
+      });
+   }
+});
+
+//wallet balance status update
+router.put('/wallet-status-update/:wallet_id', async (req, res) => {
+   const walletId = req.params.wallet_id;
+   const { status } = req.body;
+
+   if (!status) {
+      return res.status(400).json({ status: false, error: 'Status is required' });
+   }
+
+   try {
+      const query = `UPDATE user_wallet_master SET status = ? WHERE wallet_id = ?`;
+      const [result] = await con.query(query, [status, walletId]);
+
+      if (result.affectedRows > 0) {
+         res.status(200).json({ status: true, message: 'Wallet status updated successfully.' });
+      } else {
+         res.status(404).json({ status: false, message: 'Wallet data not found.' });
+      }
+   } catch (err) {
+      console.error('Error updating wallet status:', err);
+      res.status(500).json({ status: false, error: 'Database update failed.' });
+   }
+});
+
 //Wallet Details
 router.post('/wallet-details', async (req, res) => {
    try {
-      // Validate headers
       const {
          version_code,
          client_type,
@@ -1354,7 +1536,6 @@ router.post('/wallet-details', async (req, res) => {
          });
       }
 
-      // Validate body
       const { user_id } = req.body;
       if (!user_id) {
          return res.status(400).json({
@@ -1363,22 +1544,30 @@ router.post('/wallet-details', async (req, res) => {
          });
       }
 
-      // Fetch wallet details from database
-      const query = `SELECT wallet_amount AS wallet_amount, 10 AS min_recharge_amount, 1000 AS max_recharge_amount, 500 AS min_withdrawal_amount FROM user_wallet_master WHERE user_id = ?`;
-      const [results] = await con.execute(query, [user_id]);
+      const userQuery = `SELECT user_id FROM users WHERE phone = ? AND token = ? AND user_id = ?`;
+      const [userResults] = await con.execute(userQuery, [login, access_token, user_id]);
 
-      if (results.length === 0) {
+      if (userResults.length === 0) {
+         return res.status(403).json({
+            status: false,
+            message: "Authentication failed or mismatched user details."
+         });
+      }
+
+      const walletQuery = `SELECT wallet_amount AS wallet_amount, 10 AS min_recharge_amount,200 AS min_deposit_amount, 500 AS min_withdrawal_amount, 1000 AS max_recharge_amount FROM user_wallet_master WHERE user_id = ?`;
+      const [walletResults] = await con.execute(walletQuery, [user_id]);
+
+      if (walletResults.length === 0) {
          return res.status(404).json({
             status: false,
             message: "User wallet details not found."
          });
       }
 
-      // Respond with wallet details
       res.status(200).json({
          status: true,
          message: "Wallet details fetched successfully.",
-         data: results[0],
+         data: walletResults[0],
       });
    } catch (err) {
       console.error('Error:', err);
@@ -1390,9 +1579,8 @@ router.post('/wallet-details', async (req, res) => {
 });
 
 //Wallet transactions
-router.post('/wallet-transactions', async (req, res) => {
+router.post('/transaction', async (req, res) => {
    try {
-      // Validate headers
       const {
          version_code,
          client_type,
@@ -1405,52 +1593,307 @@ router.post('/wallet-transactions', async (req, res) => {
       if (!version_code || !client_type || !device_info || !fcm_token || !login || !access_token) {
          return res.status(400).json({
             status: false,
-            message: "Missing required headers."
+            message: "Missing required headers.",
          });
       }
 
-      // Validate body
+
       const { wallet_id } = req.body;
       if (!wallet_id) {
          return res.status(400).json({
             status: false,
-            message: "Missing user_id or wallet_id in the request body."
+            message: "Missing wallet_id in the request body.",
          });
       }
 
-      // Fetch wallet transactions for the last 30 days
-      const query = `
-       SELECT user_wallet_transaction_id AS transactionId, wallet_id AS walletId, game_id AS gameId, particulars, details, current_wallet_amount AS currentWalletAmount, created_at AS createdAt
-       FROM user_wallet_transaction_history
-       WHERE wallet_id = ? AND created_at >= NOW() - INTERVAL 30 DAY
-       ORDER BY created_at DESC`;
 
-      const [results] = await con.execute(query, [wallet_id]);
+      const userQuery = `SELECT user_id FROM users WHERE phone = ? AND token = ?`;
+      const [userResults] = await con.execute(userQuery, [login, access_token]);
+
+      if (userResults.length === 0) {
+         return res.status(403).json({
+            status: false,
+            message: "Authentication failed or mismatched user details.",
+         });
+      }
 
 
+      const walletQuery = `
+         SELECT
+            wallet_id, user_id, wallet_amount, transaction_id, status, created_at
+         FROM
+            user_wallet_master
+         WHERE
+            wallet_id = ?
+      `;
+      const [walletResult] = await con.execute(walletQuery, [wallet_id]);
 
-      if (results.length === 0) {
+      if (walletResult.length === 0) {
          return res.status(404).json({
             status: false,
-            message: "No wallet transactions found for the last 30 days."
+            message: "Wallet not found.",
          });
       }
 
-      // Respond with wallet transactions
+
+      const walletData = walletResult[0];
+      let statusText = '';
+      switch (walletData.status) {
+         case 0:
+            statusText = 'Pending';
+            break;
+         case 1:
+            statusText = 'Approved';
+            break;
+         case 2:
+            statusText = 'Rejected';
+            break;
+         default:
+            statusText = 'Unknown';
+      }
+
+      walletData.statusText = statusText;
+
+      walletData.created_at = moment(walletData.created_at)
+         .tz(timezone)
+         .format('YYYY-MM-DD HH:mm:ss');
+
+
+      const transactionQuery = `
+     SELECT
+    t.user_wallet_transaction_id,
+    t.wallet_id,
+    t.game_id,
+    t.particulars,
+    t.details,
+    t.current_wallet_amount,
+    t.created_at
+FROM
+    user_wallet_transaction_history AS t
+WHERE
+    t.wallet_id = ?
+    AND t.created_at >= DATE_SUB(NOW(), INTERVAL 30 DAY)
+ORDER BY
+    t.created_at DESC;
+
+   `;
+
+      const [transactionResults] = await con.execute(transactionQuery, [wallet_id]);
+
+
+      // const transactions = transactionResults
+      //    .filter(transaction => transaction.type !== null)
+      //    .map(transaction => {
+      //       let currentWalletAmount = walletData.wallet_amount;
+
+      //       if (transaction.type === 'debit') {
+      //          currentWalletAmount -= transaction.amount;
+      //          return {
+      //             ...transaction,
+      //             particulars: 'Debit',
+      //             details: `Game Name: ${transaction.game_name || 'N/A'} - Bid Amount: ${transaction.amount}`,
+      //             current_wallet_amount: currentWalletAmount,
+      //          };
+      //       }
+
+      //       if (transaction.type === 'credit') {
+      //          currentWalletAmount += transaction.amount;
+      //          return {
+      //             ...transaction,
+      //             particulars: 'Credit',
+      //             details: `Game Name: ${transaction.game_name || 'N/A'} - Credit Amount: ${transaction.amount}`,
+      //             current_wallet_amount: currentWalletAmount,
+      //          };
+      //       }
+
+      //       // Default for unknown transactions
+      //       return {
+      //          ...transaction,
+      //          particulars: 'Unknown',
+      //          details: 'Unknown transaction type',
+      //          current_wallet_amount: currentWalletAmount,
+      //       };
+      //    });
+
+
+
+      const transactions = transactionResults.map(transaction => ({
+         user_wallet_transaction_id: transaction.user_wallet_transaction_id,
+         wallet_id: transaction.wallet_id,
+         game_id: transaction.game_id,
+         particulars: transaction.particulars || 'N/A',
+         details: transaction.details || 'N/A',
+         current_wallet_amount: transaction.current_wallet_amount,
+         created_at: moment(transaction.created_at)
+            .tz(timezone)
+            .format('YYYY-MM-DD HH:mm:ss'),
+      }));
+
       res.status(200).json({
          status: true,
-         message: "Wallet transactions fetched successfully.",
-         data: results,
+         message: transactions.length
+            ? "Transaction details fetched successfully."
+            : "No transaction history found for this wallet.",
+         data: {
+            wallet: walletData,
+            transactions: transactions,
+         },
       });
    } catch (err) {
       console.error('Error:', err);
       res.status(500).json({
          status: false,
-         message: "An error occurred while fetching wallet transactions."
+         message: "An error occurred while fetching transaction details.",
       });
    }
 });
 
+//Withdrawal Request
+router.post("/withdrawal-request", async (req, res) => {
+   try {
+      const { version_code, client_type, device_info, fcm_token, login, access_token } = req.headers;
+
+      const {
+         user_id,
+         account_holder_name,
+         account_number,
+         ifsc_code,
+         paytm_number,
+         upi_address,
+         withdrawal_amount,
+      } = req.body;
+
+      if (!version_code || !client_type || !device_info || !fcm_token || !login || !access_token) {
+         return res.status(400).json({
+            status: 400,
+            message: "Missing required headers.",
+         });
+      }
+
+      if (!user_id || !withdrawal_amount) {
+         return res.status(400).json({
+            status: 400,
+            message: "user_id and withdrawal_amount are required.",
+         });
+      }
+
+      if (withdrawal_amount <= 500) {
+         return res.status(400).json({
+            status: 400,
+            message: "Minimum withdrawal amount is 500.",
+         });
+      }
+
+      const sql = `
+       INSERT INTO user_withdrawal_master
+       (user_id, account_holder_name, account_number, ifsc_code, paytm_number, upi_address, withdrawal_amount, status, created_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, 0, NOW())
+     `;
+
+      const values = [
+         user_id,
+         account_holder_name || null,
+         account_number || null,
+         ifsc_code || null,
+         paytm_number || null,
+         upi_address || null,
+         withdrawal_amount,
+      ];
+
+      const [result] = await con.query(sql, values);
+
+      return res.status(200).json({
+         status: 200,
+         message: "Withdrawal request submitted successfully.",
+         withdrawal_id: result.insertId,
+      });
+   } catch (error) {
+      console.error("Database Error:", error);
+      return res.status(500).json({
+         status: 500,
+         message: "Internal Server Error.",
+      });
+   }
+});
+
+//user withdrawal info
+router.post('/user-withdrawal-info', async (req, res) => {
+   const { login, access_token } = req.headers;
+
+   try {
+      const adminQuery = `
+         SELECT admin_id, token
+         FROM app_admin_master
+         WHERE phone = ?;
+      `;
+      const [adminResult] = await con.execute(adminQuery, [login]);
+
+      if (adminResult.length === 0 || adminResult[0].token !== access_token) {
+         return res.status(401).json({
+            status: false,
+            message: 'Access token mismatch or admin not found.',
+            data: []
+         });
+      }
+
+      const query = `
+      SELECT
+         u.user_id,
+         u.name,
+         u.email,
+         u.phone,
+         uwm.withdrawal_id,
+         uwm.account_holder_name,
+         uwm.account_number,
+         uwm.ifsc_code,
+         uwm.paytm_number,
+         uwm.upi_address,
+         uwm.withdrawal_amount,
+         CASE
+            WHEN uwm.status = 0 THEN 'Pending'
+            WHEN uwm.status = 1 THEN 'Approved'
+            WHEN uwm.status = 2 THEN 'Rejected'
+            ELSE 'Unknown'
+         END AS statusText,
+         uwm.created_at
+      FROM
+         users u
+      INNER JOIN
+         user_withdrawal_master uwm
+      ON
+         u.user_id = uwm.user_id;
+   `;
+
+
+      const [results] = await con.execute(query);
+
+      const formattedResults = results.map((row) => ({
+         ...row,
+         created_at: moment(row.created_at).format('YYYY-MM-DD HH:mm:ss'),
+      }));
+
+      if (formattedResults.length === 0) {
+         return res.status(200).json({
+            status: true,
+            data: [],
+            message: 'No user or wallet data found.'
+         });
+      }
+
+      res.status(200).json({
+         status: true,
+         message: 'User wallet data retrieved successfully.',
+         data: formattedResults,
+      });
+   } catch (err) {
+      console.error('Error fetching user wallet info:', err);
+      res.status(500).json({
+         status: false,
+         data: [],
+         message: 'Internal server error.'
+      });
+   }
+});
 
 router.get('/logout', (req, res) => {
    res.clearCookie('token');
