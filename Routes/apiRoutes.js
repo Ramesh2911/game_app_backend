@@ -1544,7 +1544,11 @@ router.post('/wallet-details', async (req, res) => {
          });
       }
 
-      const userQuery = `SELECT user_id FROM users WHERE phone = ? AND token = ? AND user_id = ?`;
+      const userQuery = `
+         SELECT user_id
+         FROM users
+         WHERE phone = ? AND token = ? AND user_id = ?
+      `;
       const [userResults] = await con.execute(userQuery, [login, access_token, user_id]);
 
       if (userResults.length === 0) {
@@ -1554,20 +1558,39 @@ router.post('/wallet-details', async (req, res) => {
          });
       }
 
-      const walletQuery = `SELECT wallet_amount AS wallet_amount, 10 AS min_recharge_amount,200 AS min_deposit_amount, 500 AS min_withdrawal_amount, 1000 AS max_recharge_amount FROM user_wallet_master WHERE user_id = ?`;
+      const walletQuery = `
+         SELECT
+            wallet_amount AS wallet_amount,
+            notes,
+            10 AS min_recharge_amount,
+            200 AS min_deposit_amount,
+            500 AS min_withdrawal_amount,
+            1000 AS max_recharge_amount,
+            created_at
+         FROM user_wallet_master
+         WHERE user_id = ?
+         ORDER BY created_at DESC
+         LIMIT 1
+      `;
       const [walletResults] = await con.execute(walletQuery, [user_id]);
 
       if (walletResults.length === 0) {
-         return res.status(404).json({
-            status: false,
-            message: "User wallet details not found."
+         return res.status(200).json({
+            status: true,
+            message: "No wallet details found for the given user ID."
          });
       }
+
+      const walletData = walletResults[0];
+      walletData.created_at = moment(walletData.created_at)
+         .tz(timezone)
+         .format('YYYY-MM-DD HH:mm:ss');
+
 
       res.status(200).json({
          status: true,
          message: "Wallet details fetched successfully.",
-         data: walletResults[0],
+         data: walletData,
       });
    } catch (err) {
       console.error('Error:', err);
