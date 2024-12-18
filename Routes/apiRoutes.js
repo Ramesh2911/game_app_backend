@@ -1345,7 +1345,7 @@ router.post('/add-money', async (req, res) => {
       access_token,
    } = req.headers;
 
-   const { amount, transaction_id } = req.body;
+   const { amount, transaction_id, notes } = req.body;
 
    if (
       !version_code ||
@@ -1394,10 +1394,10 @@ router.post('/add-money', async (req, res) => {
       const user_id = userResult[0].user_id;
 
       const walletQuery = `
-         INSERT INTO user_wallet_master (user_id, app_id, wallet_amount, transaction_id, created_at, updated_at)
-         VALUES (?, ?, ?, ?, NOW(), NOW());
+         INSERT INTO user_wallet_master (user_id, app_id, wallet_amount, transaction_id,notes, created_at, updated_at)
+         VALUES (?, ?, ?, ?,?, NOW(), NOW());
       `;
-      await con.execute(walletQuery, [user_id, 1, amount, transaction_id]);
+      await con.execute(walletQuery, [user_id, 1, amount, transaction_id, notes]);
 
       res.status(200).json({
          status: true,
@@ -1894,6 +1894,68 @@ router.post('/user-withdrawal-info', async (req, res) => {
       });
    }
 });
+
+//Result
+//slot list api
+router.post('/slot-list', async (req, res) => {
+   const { login, access_token } = req.headers;
+   const { game_id, game_type_id } = req.body;
+   try {
+      const adminQuery = `
+         SELECT admin_id, token
+         FROM app_admin_master
+         WHERE phone = ?;
+      `;
+      const [adminResult] = await con.execute(adminQuery, [login]);
+
+      if (adminResult.length === 0 || adminResult[0].token !== access_token) {
+         return res.status(401).json({
+            status: false,
+            message: 'Access token mismatch or admin not found.',
+            data: []
+         });
+      }
+
+      if (!game_id || !game_type_id) {
+         return res.status(400).json({
+            status: false,
+            message: 'game_id and game_type_id are required.',
+         });
+      }
+
+      const query = `
+           SELECT slot_id, start_time, end_time
+           FROM game_slot_configuration_master
+           WHERE game_id = ?
+             AND game_type_id = ?
+             AND is_active = 1
+       `;
+
+      const [rows] = await con.execute(query, [game_id, game_type_id]);
+
+      if (rows.length === 0) {
+         return res.status(200).json({
+            status: true,
+            message: 'No data available for the given game_id and game_type_id.',
+            data: [],
+         });
+      }
+
+      res.status(200).json({
+         status: true,
+         message: 'Data fetched successfully.',
+         data: rows,
+      });
+   } catch (error) {
+      console.error('Error fetching game data:', error.message);
+      res.status(500).json({
+         status: false,
+         message: 'Internal server error.',
+         error: error.message,
+      });
+   }
+});
+
 
 router.get('/logout', (req, res) => {
    res.clearCookie('token');
