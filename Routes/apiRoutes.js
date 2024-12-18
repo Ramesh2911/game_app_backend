@@ -1559,38 +1559,49 @@ router.post('/wallet-details', async (req, res) => {
       }
 
       const walletQuery = `
-         SELECT
-            wallet_amount AS wallet_amount,
-            notes,
-            10 AS min_recharge_amount,
-            200 AS min_deposit_amount,
-            500 AS min_withdrawal_amount,
-            1000 AS max_recharge_amount,
-            created_at
+         SELECT wallet_amount, status, created_at, notes
          FROM user_wallet_master
          WHERE user_id = ?
-         ORDER BY created_at DESC
-         LIMIT 1
       `;
       const [walletResults] = await con.execute(walletQuery, [user_id]);
 
       if (walletResults.length === 0) {
          return res.status(200).json({
             status: true,
-            message: "No wallet details found for the given user ID."
+            message: "No wallet details found for the given user ID.",
+            data: { wallet_amount: 0 }
          });
       }
 
-      const walletData = walletResults[0];
-      walletData.created_at = moment(walletData.created_at)
+      walletResults.sort((a, b) => new Date(b.created_at) - new Date(a.created_at));
+
+      const latestRecord = walletResults[0];
+
+      let totalWalletAmount = 0;
+      const activeRows = walletResults.filter(row => row.status === 1);
+
+      if (activeRows.length > 0) {
+         totalWalletAmount = activeRows.reduce((sum, row) => sum + parseFloat(row.wallet_amount), 0);
+      } else {
+         totalWalletAmount = 0;
+      }
+
+      const formattedCreatedAt = moment(latestRecord.created_at)
          .tz(timezone)
          .format('YYYY-MM-DD HH:mm:ss');
-
 
       res.status(200).json({
          status: true,
          message: "Wallet details fetched successfully.",
-         data: walletData,
+         data: {
+            wallet_amount: totalWalletAmount,
+            notes: latestRecord.notes || null,
+            min_recharge_amount: 10,
+            min_deposit_amount: 200,
+            min_withdrawal_amount: 500,
+            max_recharge_amount: 1000,
+            created_at: formattedCreatedAt
+         },
       });
    } catch (err) {
       console.error('Error:', err);
@@ -1600,6 +1611,8 @@ router.post('/wallet-details', async (req, res) => {
       });
    }
 });
+
+
 
 //Wallet transactions
 router.post('/transaction', async (req, res) => {
