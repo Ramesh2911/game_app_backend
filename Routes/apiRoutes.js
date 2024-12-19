@@ -427,6 +427,93 @@ router.post('/version-check', async (req, res) => {
 });
 
 //User Info
+// router.post('/user-info', async (req, res) => {
+//    const {
+//       version_code,
+//       client_type,
+//       device_info,
+//       fcm_token,
+//       login,
+//       access_token,
+//    } = req.headers;
+
+//    if (!version_code || !client_type || !device_info || !fcm_token || !login || !access_token) {
+//       return res.status(400).json({
+//          status: false,
+//          message: "Missing required headers: 'login' and/or 'access_token'.",
+//       });
+//    }
+
+//    try {
+//       const decoded = jwt.verify(access_token, JWT_SECRET_KEY);
+//       if (!decoded) {
+//          return res.status(401).json({
+//             status: false,
+//             message: 'Invalid or expired access token.',
+//          });
+//       }
+
+//       const tokenQuery = `
+//          SELECT token FROM users WHERE phone = ?;
+//       `;
+//       const [tokenResult] = await con.query(tokenQuery, [login]);
+
+//       if (tokenResult.length === 0 || tokenResult[0].token !== access_token) {
+//          return res.status(401).json({
+//             status: false,
+//             message: 'Access token mismatch or user not found.',
+//          });
+//       }
+
+//       const userInfoQuery = `
+//       SELECT
+//          user_id AS id,
+//          name,
+//          email,
+//          phone
+//       FROM
+//          users
+//       WHERE
+//          phone = ?;
+//    `;
+
+//       const [results] = await con.query(userInfoQuery, [login]);
+
+//       if (results.length === 0) {
+//          return res.status(404).json({
+//             status: false,
+//             message: 'User not found.',
+//          });
+//       }
+
+//       const user = results[0];
+
+//       return res.status(200).json({
+//          status: true,
+//          message: 'User details fetched successfully.',
+//          data: {
+//             id: user.id,
+//             name: user.name,
+//             email: user.email,
+//             phone: user.phone,
+//          },
+//       });
+//    } catch (error) {
+//       if (error.name === 'JsonWebTokenError') {
+//          return res.status(401).json({
+//             status: false,
+//             message: 'Invalid or expired access token.',
+//          });
+//       }
+
+//       console.error(error);
+//       return res.status(500).json({
+//          status: false,
+//          message: 'Internal server error.',
+//       });
+//    }
+// });
+
 router.post('/user-info', async (req, res) => {
    const {
       version_code,
@@ -466,37 +553,60 @@ router.post('/user-info', async (req, res) => {
       }
 
       const userInfoQuery = `
-      SELECT
-         user_id AS id,
-         name,
-         email,
-         phone
-      FROM
-         users
-      WHERE
-         phone = ?;
-   `;
+         SELECT
+            user_id AS user_id,
+            name,
+            email,
+            phone
+         FROM
+            users
+         WHERE
+            phone = ?;
+      `;
 
-      const [results] = await con.query(userInfoQuery, [login]);
+      const [userResults] = await con.query(userInfoQuery, [login]);
 
-      if (results.length === 0) {
+      if (userResults.length === 0) {
          return res.status(404).json({
             status: false,
             message: 'User not found.',
          });
       }
 
-      const user = results[0];
+      const user = userResults[0];
+
+      // Fetch data from user_withdrawal_master
+      const withdrawalQuery = `
+         SELECT
+            account_holder_name,
+            account_number,
+            ifsc_code,
+            paytm_number,
+            upi_address
+         FROM
+            user_withdrawal_master
+         WHERE
+            user_id = ?
+         ORDER BY
+            user_id DESC
+         LIMIT 1;
+      `;
+
+      const [withdrawalResults] = await con.query(withdrawalQuery, [user.user_id]);
+
+      // Prepare response data
+      const responseData = {
+         user_id: user.user_id,
+         name: user.name,
+         email: user.email,
+         phone: user.phone,
+         ...(withdrawalResults.length > 0 ? withdrawalResults[0] : {}), // Include withdrawal details if available
+      };
 
       return res.status(200).json({
          status: true,
          message: 'User details fetched successfully.',
-         data: {
-            id: user.id,
-            name: user.name,
-            email: user.email,
-            phone: user.phone,
-         },
+         data: responseData,
       });
    } catch (error) {
       if (error.name === 'JsonWebTokenError') {
@@ -513,6 +623,7 @@ router.post('/user-info', async (req, res) => {
       });
    }
 });
+
 
 //Game list
 router.post('/game-list', async (req, res) => {
@@ -1611,8 +1722,6 @@ router.post('/wallet-details', async (req, res) => {
       });
    }
 });
-
-
 
 //Wallet transactions
 router.post('/transaction', async (req, res) => {
