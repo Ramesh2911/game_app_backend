@@ -577,20 +577,20 @@ router.post('/user-info', async (req, res) => {
 
       // Fetch data from user_withdrawal_master
       const withdrawalQuery = `
-         SELECT
-            account_holder_name,
-            account_number,
-            ifsc_code,
-            paytm_number,
-            upi_address
-         FROM
-            user_withdrawal_master
-         WHERE
-            user_id = ?
-         ORDER BY
-            user_id DESC
-         LIMIT 1;
-      `;
+      SELECT
+         account_holder_name,
+         account_number,
+         ifsc_code,
+         paytm_number,
+         upi_address
+      FROM
+         user_withdrawal_master
+      WHERE
+         user_id = ?
+      ORDER BY
+         created_at DESC
+      LIMIT 1;
+   `;
 
       const [withdrawalResults] = await con.query(withdrawalQuery, [user.user_id]);
 
