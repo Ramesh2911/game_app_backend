@@ -427,93 +427,6 @@ router.post('/version-check', async (req, res) => {
 });
 
 //User Info
-// router.post('/user-info', async (req, res) => {
-//    const {
-//       version_code,
-//       client_type,
-//       device_info,
-//       fcm_token,
-//       login,
-//       access_token,
-//    } = req.headers;
-
-//    if (!version_code || !client_type || !device_info || !fcm_token || !login || !access_token) {
-//       return res.status(400).json({
-//          status: false,
-//          message: "Missing required headers: 'login' and/or 'access_token'.",
-//       });
-//    }
-
-//    try {
-//       const decoded = jwt.verify(access_token, JWT_SECRET_KEY);
-//       if (!decoded) {
-//          return res.status(401).json({
-//             status: false,
-//             message: 'Invalid or expired access token.',
-//          });
-//       }
-
-//       const tokenQuery = `
-//          SELECT token FROM users WHERE phone = ?;
-//       `;
-//       const [tokenResult] = await con.query(tokenQuery, [login]);
-
-//       if (tokenResult.length === 0 || tokenResult[0].token !== access_token) {
-//          return res.status(401).json({
-//             status: false,
-//             message: 'Access token mismatch or user not found.',
-//          });
-//       }
-
-//       const userInfoQuery = `
-//       SELECT
-//          user_id AS id,
-//          name,
-//          email,
-//          phone
-//       FROM
-//          users
-//       WHERE
-//          phone = ?;
-//    `;
-
-//       const [results] = await con.query(userInfoQuery, [login]);
-
-//       if (results.length === 0) {
-//          return res.status(404).json({
-//             status: false,
-//             message: 'User not found.',
-//          });
-//       }
-
-//       const user = results[0];
-
-//       return res.status(200).json({
-//          status: true,
-//          message: 'User details fetched successfully.',
-//          data: {
-//             id: user.id,
-//             name: user.name,
-//             email: user.email,
-//             phone: user.phone,
-//          },
-//       });
-//    } catch (error) {
-//       if (error.name === 'JsonWebTokenError') {
-//          return res.status(401).json({
-//             status: false,
-//             message: 'Invalid or expired access token.',
-//          });
-//       }
-
-//       console.error(error);
-//       return res.status(500).json({
-//          status: false,
-//          message: 'Internal server error.',
-//       });
-//    }
-// });
-
 router.post('/user-info', async (req, res) => {
    const {
       version_code,
@@ -575,7 +488,6 @@ router.post('/user-info', async (req, res) => {
 
       const user = userResults[0];
 
-      // Fetch data from user_withdrawal_master
       const withdrawalQuery = `
       SELECT
          account_holder_name,
@@ -594,13 +506,12 @@ router.post('/user-info', async (req, res) => {
 
       const [withdrawalResults] = await con.query(withdrawalQuery, [user.user_id]);
 
-      // Prepare response data
       const responseData = {
-         user_id: user.user_id,
+         id: user.user_id,
          name: user.name,
          email: user.email,
          phone: user.phone,
-         ...(withdrawalResults.length > 0 ? withdrawalResults[0] : {}), // Include withdrawal details if available
+         ...(withdrawalResults.length > 0 ? withdrawalResults[0] : {}),
       };
 
       return res.status(200).json({
@@ -623,7 +534,6 @@ router.post('/user-info', async (req, res) => {
       });
    }
 });
-
 
 //Game list
 router.post('/game-list', async (req, res) => {
@@ -1314,6 +1224,31 @@ router.post('/user-game-save', async (req, res) => {
    }
 });
 
+//Admin part
+//game type name
+router.post('/game-type-name', async (req, res) => {
+   const login = req.headers.login;
+   const accessToken = req.headers.access_token;
+
+   if (!login || !accessToken) {
+      return res.status(400).json({ status: false, message: 'Missing login or access_token headers' });
+   }
+
+   try {
+      const query = 'SELECT game_type_id, game_id, game_type_name FROM game_type_master';
+      const results = await con.query(query);
+
+      res.status(200).json({
+         status: true,
+         message: 'Game type data fetched successfully',
+         data: results[0],
+      });
+   } catch (err) {
+      console.error('Error fetching data:', err);
+      res.status(500).json({ status: false, message: 'Database query error' });
+   }
+});
+
 // Game Create
 router.post('/create-game', upload.single('game_pic'), async (req, res) => {
    const {
@@ -1442,6 +1377,30 @@ router.post('/create-slot', async (req, res) => {
          message: 'Failed to create slots. Please try again.',
          error: error.message
       });
+   }
+});
+
+//slot info
+router.post('/slot-info', async (req, res) => {
+   const login = req.headers.login;
+   const accessToken = req.headers.access_token;
+
+   if (!login || !accessToken) {
+      return res.status(400).json({ status: false, message: 'Missing login or access_token headers' });
+   }
+
+   try {
+      const query = 'SELECT slot_id, game_type_id, game_id, start_time,end_time FROM game_slot_configuration_master';
+      const results = await con.query(query);
+
+      res.status(200).json({
+         status: true,
+         message: 'Slot data fetched successfully',
+         data: results[0],
+      });
+   } catch (err) {
+      console.error('Error fetching data:', err);
+      res.status(500).json({ status: false, message: 'Database query error' });
    }
 });
 
@@ -2097,6 +2056,93 @@ router.post('/slot-list', async (req, res) => {
          status: false,
          message: 'Internal server error.',
          error: error.message,
+      });
+   }
+});
+
+//Result Create
+router.post('/result-create', async (req, res) => {
+   try {
+      const { login, access_token } = req.headers;
+      const { game_id, game_type_id, slot_id, winner_values } = req.body;
+
+      const adminQuery = `
+      SELECT admin_id, token
+      FROM app_admin_master
+      WHERE phone = ?;
+   `;
+      const [adminResult] = await con.execute(adminQuery, [login]);
+
+      if (adminResult.length === 0 || adminResult[0].token !== access_token) {
+         return res.status(401).json({
+            status: false,
+            message: 'Access token mismatch or admin not found.',
+            data: []
+         });
+      }
+
+      if (!game_id || !game_type_id || !slot_id || !slot_id.length || !winner_values) {
+         return res.status(400).json({ status: false, message: 'Invalid input data' });
+      }
+
+      for (const slot of slot_id) {
+         const winnerValue = winner_values[slot];
+         if (!winnerValue) {
+            return res.status(400).json({ status: false, message: `Winner value is missing for slot ${slot}` });
+         }
+
+         await con.query(
+            `INSERT INTO result_master (game_id, game_type_id, slot_id, winner_value) VALUES (?, ?, ?, ?)`,
+            [game_id, game_type_id, slot, winnerValue]
+         );
+      }
+
+      res.status(200).json({ status: true, message: 'Result created successfully' });
+   } catch (error) {
+      console.error('Error creating result:', error);
+      res.status(500).json({ status: false, message: 'Internal server error' });
+   }
+});
+
+//Result list
+router.post('/result-list', async (req, res) => {
+   try {
+      const { login, access_token } = req.headers;
+
+      const adminQuery = `
+      SELECT admin_id, token
+      FROM app_admin_master
+      WHERE phone = ?;
+   `;
+      const [adminResult] = await con.execute(adminQuery, [login]);
+
+      if (adminResult.length === 0 || adminResult[0].token !== access_token) {
+         return res.status(401).json({
+            status: false,
+            message: 'Access token mismatch or admin not found.',
+            data: []
+         });
+      }
+
+      const [rows] = await con.execute('SELECT result_id, game_id, game_type_id, slot_id, winner_value FROM result_master');
+
+      const formattedRows = rows.map(row => {
+         return {
+            ...row,
+            created_at: moment.tz(row.created_at, timezone).format('YYYY-MM-DD HH:mm:ss'),
+         };
+      });
+
+      res.status(200).json({
+         status: true,
+         message: 'Data fetched successfully',
+         data: formattedRows,
+      });
+   } catch (err) {
+      console.error('Error fetching data:', err);
+      res.status(500).json({
+         status: false,
+         message: 'Error fetching data',
       });
    }
 });
