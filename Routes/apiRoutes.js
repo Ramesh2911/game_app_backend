@@ -13,6 +13,8 @@ const router = express.Router();
 const JWT_SECRET_KEY = 'your_jwt_secret_key';
 const TOKEN_EXPIRATION_DAYS = 60;
 const timezone = 'Asia/Kolkata';
+const BASE_URL = "http://127.0.0.1:3000/uploads";
+//const BASE_URL = "http://bet21.co.in/uploads";
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -305,7 +307,6 @@ router.post("/admin-authenticate", async (req, res) => {
    }
 });
 
-
 //Forgot password
 router.put("/forgot-password", verifyToken, async (req, res) => {
    const { phone } = req.query;
@@ -490,18 +491,16 @@ router.post('/user-info', async (req, res) => {
 
       const withdrawalQuery = `
       SELECT
+      bank_id,
          account_holder_name,
          account_number,
          ifsc_code,
          paytm_number,
          upi_address
       FROM
-         user_withdrawal_master
+         user_bank_info
       WHERE
          user_id = ?
-      ORDER BY
-         created_at DESC
-      LIMIT 1;
    `;
 
       const [withdrawalResults] = await con.query(withdrawalQuery, [user.user_id]);
@@ -536,6 +535,150 @@ router.post('/user-info', async (req, res) => {
 });
 
 //Game list
+// router.post('/game-list', async (req, res) => {
+//    const { user_id, type } = req.body;
+//    const {
+//       version_code,
+//       client_type,
+//       device_info,
+//       fcm_token,
+//       login,
+//       access_token,
+//    } = req.headers;
+
+//    if (!type || !['USER', 'ADMIN'].includes(type)) {
+//       return res.status(400).json({
+//          status: false,
+//          message: 'Invalid or missing type field. Allowed values are "USER" or "ADMIN".',
+//       });
+//    }
+
+//    if (type === 'USER') {
+//       if (
+//          !version_code ||
+//          !client_type ||
+//          !device_info ||
+//          !fcm_token ||
+//          !login ||
+//          !access_token ||
+//          !user_id
+//       ) {
+//          return res.status(400).json({
+//             status: false,
+//             message: 'Missing required fields for USER login.',
+//          });
+//       }
+//    } else if (type === 'ADMIN') {
+//       if (!login || !access_token) {
+//          return res.status(400).json({
+//             status: false,
+//             message: 'Missing required fields for ADMIN login (login and access_token).',
+//          });
+//       }
+//    }
+
+//    try {
+//       const decoded = jwt.verify(access_token, JWT_SECRET_KEY);
+//       if (!decoded) {
+//          return res.status(401).json({
+//             status: false,
+//             message: 'Invalid or expired access token.',
+//          });
+//       }
+
+//       if (type === 'USER') {
+//          const tokenQuery = `
+//             SELECT user_id, token
+//             FROM users
+//             WHERE phone = ?;
+//          `;
+//          const [tokenResult] = await con.execute(tokenQuery, [login]);
+
+//          if (tokenResult.length === 0 || tokenResult[0].token !== access_token) {
+//             return res.status(401).json({
+//                status: false,
+//                message: 'Access token mismatch or user not found.',
+//             });
+//          }
+
+//          if (tokenResult[0].user_id !== parseInt(user_id, 10)) {
+//             return res.status(403).json({
+//                status: false,
+//                message: 'User ID does not match the authenticated user.',
+//             });
+//          }
+//       }
+
+//       if (type === 'ADMIN') {
+//          const adminQuery = `
+//             SELECT admin_id, token
+//             FROM app_admin_master
+//             WHERE phone = ?;
+//          `;
+//          const [adminResult] = await con.execute(adminQuery, [login]);
+
+//          if (adminResult.length === 0 || adminResult[0].token !== access_token) {
+//             return res.status(401).json({
+//                status: false,
+//                message: 'Access token mismatch or admin not found.',
+//             });
+//          }
+//       }
+
+//       const gameQuery = `
+//          SELECT game_id, app_id, game_name, game_pic, is_active
+//          FROM game_master
+//          WHERE is_active = 1 AND is_deleted = 0;
+//       `;
+//       const [games] = await con.execute(gameQuery);
+
+//       const currentTime = moment();
+
+//       const gameList = await Promise.all(
+//          games.map(async (game) => {
+//             const slotQuery = `
+//                SELECT COUNT(*) AS active_slots
+//                FROM game_slot_configuration_master
+//                WHERE game_id = ?
+//                  AND is_active = 1
+//                  AND is_deleted = 0
+//                  AND ? BETWEEN start_time AND end_time;
+//             `;
+//             const [slotResults] = await con.execute(slotQuery, [
+//                game.game_id,
+//                currentTime.format('YYYY-MM-DD HH:mm:ss'),
+//             ]);
+
+//             const is_game_active = slotResults[0].active_slots > 0 ? 1 : 0;
+
+//             return {
+//                ...game,
+//                is_game_active,
+//             };
+//          })
+//       );
+
+//       res.status(200).json({
+//          status: true,
+//          message: 'Game list retrieved successfully',
+//          gameList,
+//       });
+//    } catch (err) {
+//       console.error('Error:', err);
+//       if (err.name === 'JsonWebTokenError') {
+//          return res.status(401).json({
+//             status: false,
+//             message: 'Invalid or expired access token.',
+//          });
+//       }
+
+//       res.status(500).json({
+//          status: false,
+//          message: 'Internal server error',
+//       });
+//    }
+// });
+
 router.post('/game-list', async (req, res) => {
    const { user_id, type } = req.body;
    const {
@@ -546,6 +689,8 @@ router.post('/game-list', async (req, res) => {
       login,
       access_token,
    } = req.headers;
+
+
 
    if (!type || !['USER', 'ADMIN'].includes(type)) {
       return res.status(400).json({
@@ -654,6 +799,7 @@ router.post('/game-list', async (req, res) => {
 
             return {
                ...game,
+               game_pic: `${BASE_URL}/${game.game_pic}`,
                is_game_active,
             };
          })
@@ -1105,6 +1251,7 @@ router.post('/game-all-details', async (req, res) => {
 
             return {
                ...game,
+               game_pic: `${BASE_URL}/${game.game_pic}`,
                gameTypes: gameTypesWithSlots,
             };
          })
@@ -1132,6 +1279,137 @@ router.post('/game-all-details', async (req, res) => {
 });
 
 //User game Submit
+// router.post('/user-game-save', async (req, res) => {
+//    const { user_id, game_id, game_type_id, slot_id, chosen_numbers } = req.body;
+//    const {
+//       version_code,
+//       client_type,
+//       device_info,
+//       fcm_token,
+//       login,
+//       access_token,
+//    } = req.headers;
+
+//    if (
+//       !version_code ||
+//       !client_type ||
+//       !device_info ||
+//       !fcm_token ||
+//       !login ||
+//       !access_token
+//    ) {
+//       return res.status(400).json({
+//          status: false,
+//          message: 'Missing required headers',
+//       });
+//    }
+
+//    if (!user_id || !game_id || !game_type_id || !slot_id || !chosen_numbers || !Array.isArray(chosen_numbers)) {
+//       return res.status(400).json({
+//          status: false,
+//          message: 'Invalid or missing required body parameters.',
+//       });
+//    }
+
+//    try {
+//       const decoded = jwt.verify(access_token, JWT_SECRET_KEY);
+//       if (!decoded) {
+//          return res.status(401).json({
+//             status: false,
+//             message: 'Invalid or expired access token.',
+//          });
+//       }
+
+//       const [userResult] = await con.execute(
+//          `SELECT user_id, token FROM users WHERE phone = ? AND user_id = ?`,
+//          [login, user_id]
+//       );
+
+//       if (userResult.length === 0 || userResult[0].token !== access_token) {
+//          return res.status(401).json({
+//             status: false,
+//             message: 'Access token mismatch, user_id or login does not match.',
+//          });
+//       }
+
+//       const totalAmount = chosen_numbers.reduce((sum, item) => sum + item.amount, 0);
+
+//       const walletQuery = `
+//          SELECT current_amount
+//          FROM user_wallet_master
+//          WHERE user_id = ? AND status = 1
+//          ORDER BY created_at DESC
+//          LIMIT 1
+//       `;
+//       const [walletResult] = await con.execute(walletQuery, [user_id]);
+
+//       if (walletResult.length === 0) {
+//          return res.status(400).json({
+//             status: false,
+//             message: 'Wallet information not found for the user.',
+//          });
+//       }
+//       const currentWallet = walletResult[0].current_amount;
+
+//       if (currentWallet < totalAmount) {
+//          return res.status(400).json({
+//             status: false,
+//             message: `Insufficient wallet balance. Current balance: ${currentWallet}, Required: ${totalAmount}`,
+//          });
+//       }
+
+//       const currentAmount = currentWallet - totalAmount;
+//       await con.execute(
+//          `UPDATE user_wallet_master SET current_amount = ? WHERE user_id = ? AND status = 1 ORDER BY created_at DESC LIMIT 1`,
+//          [currentAmount, user_id]
+//       );
+
+//       const insertMapQuery = `
+//          INSERT INTO user_game_map (user_id, game_id, game_type_id, slot_id, bid_Value)
+//          VALUES (?, ?, ?, ?, ?)
+//       `;
+//       const insertValuesQuery = `
+//          INSERT INTO user_game_choosen_values (user_game_map_id, chosen_value)
+//          VALUES (?, ?)
+//       `;
+
+//       const insertedIds = [];
+//       for (const item of chosen_numbers) {
+//          const [mapResult] = await con.execute(insertMapQuery, [user_id, game_id, game_type_id, slot_id, item.amount]);
+//          const userGameMapId = mapResult.insertId;
+
+//          // Insert each chosen value into the user_game_choosen_values table
+//          await con.execute(insertValuesQuery, [userGameMapId, item.number]);
+
+//          insertedIds.push(userGameMapId);
+//       }
+
+//       // Return the success response with the updated balance and inserted IDs
+//       res.status(200).json({
+//          status: true,
+//          message: 'Game details saved successfully',
+//          currentAmount,
+//          insertedIds,
+//       });
+//    } catch (err) {
+//       console.error('Error:', err);
+
+//       // Handle token verification error
+//       if (err.name === 'JsonWebTokenError') {
+//          return res.status(401).json({
+//             status: false,
+//             message: 'Invalid or expired access token.',
+//          });
+//       }
+
+//       // Handle general errors
+//       res.status(500).json({
+//          status: false,
+//          message: 'Internal server error',
+//       });
+//    }
+// });
+
 router.post('/user-game-save', async (req, res) => {
    const { user_id, game_id, game_type_id, slot_id, chosen_numbers } = req.body;
    const {
@@ -1172,6 +1450,7 @@ router.post('/user-game-save', async (req, res) => {
             message: 'Invalid or expired access token.',
          });
       }
+
       const [userResult] = await con.execute(
          `SELECT user_id, token FROM users WHERE phone = ? AND user_id = ?`,
          [login, user_id]
@@ -1184,13 +1463,55 @@ router.post('/user-game-save', async (req, res) => {
          });
       }
 
+      const totalAmount = chosen_numbers.reduce((sum, item) => sum + item.amount, 0);
+
+      const walletQuery = `
+         SELECT current_amount
+         FROM user_wallet_master
+         WHERE user_id = ? AND status = 1
+         ORDER BY created_at DESC
+         LIMIT 1
+      `;
+      const [walletResult] = await con.execute(walletQuery, [user_id]);
+
+      if (walletResult.length === 0) {
+         return res.status(400).json({
+            status: false,
+            message: 'Wallet information not found for the user.',
+         });
+      }
+      const currentWallet = walletResult[0].current_amount;
+
+      if (currentWallet < totalAmount) {
+         return res.status(400).json({
+            status: false,
+            message: `Insufficient wallet balance. Current balance: ${currentWallet}, Required: ${totalAmount}`,
+         });
+      }
+
+      const currentAmount = currentWallet - totalAmount;
+      await con.execute(
+         `UPDATE user_wallet_master SET current_amount = ? WHERE user_id = ? AND status = 1 ORDER BY created_at DESC LIMIT 1`,
+         [currentAmount, user_id]
+      );
+
+      const particulars = 'Debit';
+      const details = `Game ID: ${game_id} | Bid amount sum: ${totalAmount}`;
+      const currentWalletAmount = currentAmount;
+
+      await con.execute(
+         `INSERT INTO user_wallet_transaction_history (user_id, game_id, particulars, details, current_wallet_amount)
+          VALUES (?, ?, ?, ?, ?)`,
+         [user_id, game_id, particulars, details, currentWalletAmount]
+      );
+
       const insertMapQuery = `
-        INSERT INTO user_game_map (user_id, game_id, game_type_id, slot_id, bid_Value)
-        VALUES (?, ?, ?, ?, ?)
+         INSERT INTO user_game_map (user_id, game_id, game_type_id, slot_id, bid_Value)
+         VALUES (?, ?, ?, ?, ?)
       `;
       const insertValuesQuery = `
-        INSERT INTO user_game_choosen_values (user_game_map_id, chosen_value)
-        VALUES (?, ?)
+         INSERT INTO user_game_choosen_values (user_game_map_id, chosen_value)
+         VALUES (?, ?)
       `;
 
       const insertedIds = [];
@@ -1206,10 +1527,12 @@ router.post('/user-game-save', async (req, res) => {
       res.status(200).json({
          status: true,
          message: 'Game details saved successfully',
+         currentAmount,
          insertedIds,
       });
    } catch (err) {
       console.error('Error:', err);
+
       if (err.name === 'JsonWebTokenError') {
          return res.status(401).json({
             status: false,
@@ -1564,19 +1887,76 @@ router.post('/user-wallet-info', async (req, res) => {
 });
 
 //wallet balance status update
+// router.put('/wallet-status-update/:wallet_id', async (req, res) => {
+//    const walletId = req.params.wallet_id;
+//    const { status } = req.body;
+
+//    if (status === undefined) {
+//       return res.status(400).json({ status: false, error: 'Status is required' });
+//    }
+
+//    try {
+//       const updateStatusQuery = `UPDATE user_wallet_master SET status = ? WHERE wallet_id = ?`;
+//       const [statusResult] = await con.query(updateStatusQuery, [status, walletId]);
+
+//       if (statusResult.affectedRows > 0) {
+//          if (status === 1) {
+//             const updateAmountQuery = `
+//                UPDATE user_wallet_master
+//                SET current_amount = wallet_amount
+//                WHERE wallet_id = ?`;
+//             await con.query(updateAmountQuery, [walletId]);
+//          }
+//          res.status(200).json({ status: true, message: 'Wallet status updated successfully.' });
+//       } else {
+//          res.status(404).json({ status: false, message: 'Wallet data not found.' });
+//       }
+//    } catch (err) {
+//       console.error('Error updating wallet status:', err);
+//       res.status(500).json({ status: false, error: 'Database update failed.' });
+//    }
+// });
+
+
 router.put('/wallet-status-update/:wallet_id', async (req, res) => {
    const walletId = req.params.wallet_id;
    const { status } = req.body;
 
-   if (!status) {
+   if (status === undefined) {
       return res.status(400).json({ status: false, error: 'Status is required' });
    }
 
    try {
-      const query = `UPDATE user_wallet_master SET status = ? WHERE wallet_id = ?`;
-      const [result] = await con.query(query, [status, walletId]);
+      const updateStatusQuery = `UPDATE user_wallet_master SET status = ? WHERE wallet_id = ?`;
+      const [statusResult] = await con.query(updateStatusQuery, [status, walletId]);
 
-      if (result.affectedRows > 0) {
+      if (statusResult.affectedRows > 0) {
+         if (status === 1) {
+            const getUserQuery = `SELECT user_id FROM user_wallet_master WHERE wallet_id = ?`;
+            const [userResult] = await con.query(getUserQuery, [walletId]);
+
+            if (userResult.length > 0) {
+               const userId = userResult[0].user_id;
+
+               const sumAmountQuery = `
+                  SELECT SUM(wallet_amount) AS totalAmount
+                  FROM user_wallet_master
+                  WHERE user_id = ? AND status = 1
+               `;
+               const [sumResult] = await con.query(sumAmountQuery, [userId]);
+
+               if (sumResult.length > 0) {
+                  const totalAmount = sumResult[0].totalAmount;
+
+                  const updateAmountQuery = `
+                     UPDATE user_wallet_master
+                     SET current_amount = ?
+                     WHERE wallet_id = ?
+                  `;
+                  await con.query(updateAmountQuery, [totalAmount, walletId]);
+               }
+            }
+         }
          res.status(200).json({ status: true, message: 'Wallet status updated successfully.' });
       } else {
          res.status(404).json({ status: false, message: 'Wallet data not found.' });
@@ -1587,7 +1967,102 @@ router.put('/wallet-status-update/:wallet_id', async (req, res) => {
    }
 });
 
+
 //Wallet Details
+// router.post('/wallet-details', async (req, res) => {
+//    try {
+//       const {
+//          version_code,
+//          client_type,
+//          device_info,
+//          fcm_token,
+//          login,
+//          access_token,
+//       } = req.headers;
+
+//       if (!version_code || !client_type || !device_info || !fcm_token || !login || !access_token) {
+//          return res.status(400).json({
+//             status: false,
+//             message: "Missing required headers."
+//          });
+//       }
+
+//       const { user_id } = req.body;
+//       if (!user_id) {
+//          return res.status(400).json({
+//             status: false,
+//             message: "Missing user_id in the request body."
+//          });
+//       }
+
+//       const userQuery = `
+//          SELECT user_id
+//          FROM users
+//          WHERE phone = ? AND token = ? AND user_id = ?
+//       `;
+//       const [userResults] = await con.execute(userQuery, [login, access_token, user_id]);
+
+//       if (userResults.length === 0) {
+//          return res.status(403).json({
+//             status: false,
+//             message: "Authentication failed or mismatched user details."
+//          });
+//       }
+
+//       const walletQuery = `
+//          SELECT current_amount, status,notes, created_at, notes
+//          FROM user_wallet_master
+//          WHERE user_id = ?
+//       `;
+//       const [walletResults] = await con.execute(walletQuery, [user_id]);
+
+//       if (walletResults.length === 0) {
+//          return res.status(200).json({
+//             status: true,
+//             message: "No wallet details found for the given user ID.",
+//             data: { current_amount: 0 }
+//          });
+//       }
+
+//       walletResults.sort((a, b) => new Date(b.created_at) - new Date(a.created_at));
+
+//       const latestRecord = walletResults[0];
+
+//       let totalWalletAmount = 0;
+//       const activeRows = walletResults.filter(row => row.status === 1);
+
+//       if (activeRows.length > 0) {
+//          totalWalletAmount = activeRows.reduce((sum, row) => sum + parseFloat(row.current_amount), 0);
+//       } else {
+//          totalWalletAmount = 0;
+//       }
+
+//       const formattedCreatedAt = moment(latestRecord.created_at)
+//          .tz(timezone)
+//          .format('YYYY-MM-DD HH:mm:ss');
+
+//       res.status(200).json({
+//          status: true,
+//          message: "Wallet details fetched successfully.",
+//          data: {
+//             current_amount: totalWalletAmount,
+//             notes: latestRecord.notes || null,
+//             min_recharge_amount: 10,
+//             min_deposit_amount: 200,
+//             min_withdrawal_amount: 500,
+//             max_recharge_amount: 1000,
+//             created_at: formattedCreatedAt
+//          },
+//       });
+//    } catch (err) {
+//       console.error('Error:', err);
+//       res.status(500).json({
+//          status: false,
+//          message: "An error occurred while fetching wallet details."
+//       });
+//    }
+// });
+
 router.post('/wallet-details', async (req, res) => {
    try {
       const {
@@ -1629,33 +2104,31 @@ router.post('/wallet-details', async (req, res) => {
       }
 
       const walletQuery = `
-         SELECT wallet_amount, status, created_at, notes
+         SELECT current_amount, notes, created_at
          FROM user_wallet_master
-         WHERE user_id = ?
+         WHERE user_id = ? AND status = 1
+         ORDER BY created_at DESC
+         LIMIT 1
       `;
       const [walletResults] = await con.execute(walletQuery, [user_id]);
 
       if (walletResults.length === 0) {
          return res.status(200).json({
             status: true,
-            message: "No wallet details found for the given user ID.",
-            data: { wallet_amount: 0 }
+            message: "No wallet details found for the given user ID with active status.",
+            data: {
+               current_amount: 0,
+               notes: null,
+               min_recharge_amount: 10,
+               min_deposit_amount: 200,
+               min_withdrawal_amount: 500,
+               max_recharge_amount: 1000,
+               created_at: null
+            }
          });
       }
 
-      walletResults.sort((a, b) => new Date(b.created_at) - new Date(a.created_at));
-
       const latestRecord = walletResults[0];
-
-      let totalWalletAmount = 0;
-      const activeRows = walletResults.filter(row => row.status === 1);
-
-      if (activeRows.length > 0) {
-         totalWalletAmount = activeRows.reduce((sum, row) => sum + parseFloat(row.wallet_amount), 0);
-      } else {
-         totalWalletAmount = 0;
-      }
-
       const formattedCreatedAt = moment(latestRecord.created_at)
          .tz(timezone)
          .format('YYYY-MM-DD HH:mm:ss');
@@ -1664,14 +2137,14 @@ router.post('/wallet-details', async (req, res) => {
          status: true,
          message: "Wallet details fetched successfully.",
          data: {
-            wallet_amount: totalWalletAmount,
+            current_amount: parseFloat(latestRecord.current_amount),
             notes: latestRecord.notes || null,
             min_recharge_amount: 10,
             min_deposit_amount: 200,
             min_withdrawal_amount: 500,
             max_recharge_amount: 1000,
             created_at: formattedCreatedAt
-         },
+         }
       });
    } catch (err) {
       console.error('Error:', err);
@@ -1682,243 +2155,362 @@ router.post('/wallet-details', async (req, res) => {
    }
 });
 
-//Wallet transactions
+// user transactions info
 router.post('/transaction', async (req, res) => {
-   try {
-      const {
-         version_code,
-         client_type,
-         device_info,
-         fcm_token,
-         login,
-         access_token,
-      } = req.headers;
+   const { user_id } = req.body;
 
-      if (!version_code || !client_type || !device_info || !fcm_token || !login || !access_token) {
-         return res.status(400).json({
-            status: false,
-            message: "Missing required headers.",
-         });
-      }
+   const {
+      version_code,
+      client_type,
+      device_info,
+      fcm_token,
+      login,
+      access_token,
+   } = req.headers;
 
-
-      const { wallet_id } = req.body;
-      if (!wallet_id) {
-         return res.status(400).json({
-            status: false,
-            message: "Missing wallet_id in the request body.",
-         });
-      }
-
-
-      const userQuery = `SELECT user_id FROM users WHERE phone = ? AND token = ?`;
-      const [userResults] = await con.execute(userQuery, [login, access_token]);
-
-      if (userResults.length === 0) {
-         return res.status(403).json({
-            status: false,
-            message: "Authentication failed or mismatched user details.",
-         });
-      }
-
-
-      const walletQuery = `
-         SELECT
-            wallet_id, user_id, wallet_amount, transaction_id, status, created_at
-         FROM
-            user_wallet_master
-         WHERE
-            wallet_id = ?
-      `;
-      const [walletResult] = await con.execute(walletQuery, [wallet_id]);
-
-      if (walletResult.length === 0) {
-         return res.status(404).json({
-            status: false,
-            message: "Wallet not found.",
-         });
-      }
-
-
-      const walletData = walletResult[0];
-      let statusText = '';
-      switch (walletData.status) {
-         case 0:
-            statusText = 'Pending';
-            break;
-         case 1:
-            statusText = 'Approved';
-            break;
-         case 2:
-            statusText = 'Rejected';
-            break;
-         default:
-            statusText = 'Unknown';
-      }
-
-      walletData.statusText = statusText;
-
-      walletData.created_at = moment(walletData.created_at)
-         .tz(timezone)
-         .format('YYYY-MM-DD HH:mm:ss');
-
-
-      const transactionQuery = `
-     SELECT
-    t.user_wallet_transaction_id,
-    t.wallet_id,
-    t.game_id,
-    t.particulars,
-    t.details,
-    t.current_wallet_amount,
-    t.created_at
-FROM
-    user_wallet_transaction_history AS t
-WHERE
-    t.wallet_id = ?
-    AND t.created_at >= DATE_SUB(NOW(), INTERVAL 30 DAY)
-ORDER BY
-    t.created_at DESC;
-
-   `;
-
-      const [transactionResults] = await con.execute(transactionQuery, [wallet_id]);
-
-
-      // const transactions = transactionResults
-      //    .filter(transaction => transaction.type !== null)
-      //    .map(transaction => {
-      //       let currentWalletAmount = walletData.wallet_amount;
-
-      //       if (transaction.type === 'debit') {
-      //          currentWalletAmount -= transaction.amount;
-      //          return {
-      //             ...transaction,
-      //             particulars: 'Debit',
-      //             details: `Game Name: ${transaction.game_name || 'N/A'} - Bid Amount: ${transaction.amount}`,
-      //             current_wallet_amount: currentWalletAmount,
-      //          };
-      //       }
-
-      //       if (transaction.type === 'credit') {
-      //          currentWalletAmount += transaction.amount;
-      //          return {
-      //             ...transaction,
-      //             particulars: 'Credit',
-      //             details: `Game Name: ${transaction.game_name || 'N/A'} - Credit Amount: ${transaction.amount}`,
-      //             current_wallet_amount: currentWalletAmount,
-      //          };
-      //       }
-
-      //       // Default for unknown transactions
-      //       return {
-      //          ...transaction,
-      //          particulars: 'Unknown',
-      //          details: 'Unknown transaction type',
-      //          current_wallet_amount: currentWalletAmount,
-      //       };
-      //    });
-
-
-
-      const transactions = transactionResults.map(transaction => ({
-         user_wallet_transaction_id: transaction.user_wallet_transaction_id,
-         wallet_id: transaction.wallet_id,
-         game_id: transaction.game_id,
-         particulars: transaction.particulars || 'N/A',
-         details: transaction.details || 'N/A',
-         current_wallet_amount: transaction.current_wallet_amount,
-         created_at: moment(transaction.created_at)
-            .tz(timezone)
-            .format('YYYY-MM-DD HH:mm:ss'),
-      }));
-
-      res.status(200).json({
-         status: true,
-         message: transactions.length
-            ? "Transaction details fetched successfully."
-            : "No transaction history found for this wallet.",
-         data: {
-            wallet: walletData,
-            transactions: transactions,
-         },
+   if (
+      !version_code ||
+      !client_type ||
+      !device_info ||
+      !fcm_token ||
+      !login ||
+      !access_token
+   ) {
+      return res.status(400).json({
+         status: false,
+         message: 'Missing required headers',
       });
+   }
+
+   if (!user_id) {
+      return res.status(400).json({
+         status: false,
+         message: 'User ID is required.',
+      });
+   }
+
+   try {
+      const decoded = jwt.verify(access_token, JWT_SECRET_KEY);
+      if (!decoded) {
+         return res.status(401).json({
+            status: false,
+            message: 'Invalid or expired access token.',
+         });
+      }
+
+      const [userResult] = await con.execute(
+         `SELECT user_id, token FROM users WHERE phone = ? AND user_id = ?`,
+         [login, user_id]
+      );
+
+      if (userResult.length === 0 || userResult[0].token !== access_token) {
+         return res.status(401).json({
+            status: false,
+            message: 'Access token mismatch, user_id or login does not match.',
+         });
+      }
+      const transactionQuery = `
+           SELECT user_wallet_transaction_id, game_id, particulars, details, current_wallet_amount
+           FROM user_wallet_transaction_history
+           WHERE user_id = ?
+           ORDER BY created_at DESC
+       `;
+
+      const [transactionHistory] = await con.execute(transactionQuery, [user_id]);
+
+      return res.status(200).json({
+         status: true,
+         message: transactionHistory.length === 0
+            ? 'No transaction history found for this user.'
+            : 'Transaction history fetched successfully.',
+         data: transactionHistory.length === 0 ? [] : transactionHistory,
+      });
+
    } catch (err) {
       console.error('Error:', err);
-      res.status(500).json({
+
+      if (err.name === 'JsonWebTokenError') {
+         return res.status(401).json({
+            status: false,
+            message: 'Invalid or expired access token.',
+         });
+      }
+
+      return res.status(500).json({
          status: false,
-         message: "An error occurred while fetching transaction details.",
+         message: 'Internal server error',
       });
    }
 });
 
 //Withdrawal Request
-router.post("/withdrawal-request", async (req, res) => {
+router.post('/withdrawal-request', async (req, res) => {
+   const {
+      version_code,
+      client_type,
+      device_info,
+      fcm_token,
+      login,
+      access_token
+   } = req.headers;
+
+   const { amount, transaction_id, notes } = req.body;
+
+   if (!version_code || !client_type || !device_info || !fcm_token || !login || !access_token) {
+      return res.status(400).json({
+         status: false,
+         message: 'Missing required headers',
+      });
+   }
+   if (!amount || !transaction_id) {
+      return res.status(400).json({
+         status: false,
+         message: 'Missing required fields in body',
+      });
+   }
+
+   if (amount < 500) {
+      return res.status(400).json({
+         status: false,
+         message: 'Minimum withdrawal amount is 500',
+      });
+   }
+
    try {
-      const { version_code, client_type, device_info, fcm_token, login, access_token } = req.headers;
+      const decoded = jwt.verify(access_token, JWT_SECRET_KEY);
+      if (!decoded) {
+         return res.status(401).json({
+            status: false,
+            message: 'Invalid or expired access token',
+         });
+      }
 
-      const {
+      const userQuery = `
+         SELECT user_id, token
+         FROM users
+         WHERE phone = ? AND token = ?;
+      `;
+      const [userResult] = await con.execute(userQuery, [login, access_token]);
+
+      if (userResult.length === 0) {
+         return res.status(401).json({
+            status: false,
+            message: 'Invalid login or access token',
+         });
+      }
+
+      const user_id = userResult[0].user_id;
+
+      const bankInfoQuery = `
+         SELECT *
+         FROM user_bank_info
+         WHERE user_id = ?;
+      `;
+      const [bankInfoResult] = await con.execute(bankInfoQuery, [user_id]);
+
+      if (bankInfoResult.length === 0) {
+         return res.status(400).json({
+            status: false,
+            message: 'Update your bank information',
+         });
+      }
+
+      const walletQuery = `
+              SELECT current_amount
+                   FROM user_wallet_master
+                   WHERE user_id = ? AND status = 1
+                       ORDER BY created_at DESC
+                           LIMIT 1;
+                             `;
+      const [walletResult] = await con.execute(walletQuery, [user_id]);
+
+      if (walletResult.length === 0) {
+         return res.status(400).json({
+            status: false,
+            message: 'Wallet balance not found',
+         });
+      }
+
+      const currentBalance = parseFloat(walletResult[0].current_amount);
+
+      if (isNaN(currentBalance) || currentBalance < parseFloat(amount)) {
+         return res.status(400).json({
+            status: false,
+            message: 'Insufficient wallet balance',
+         });
+      }
+
+      const insertQuery = `
+         INSERT INTO user_withdrawal_master (
+            user_id,
+            app_id,
+            withdrawal_amount,
+            transaction_id,
+            notes,
+            status
+         ) VALUES (?, ?, ?, ?,?, ?);
+      `;
+
+      const [insertResult] = await con.execute(insertQuery, [
          user_id,
-         account_holder_name,
-         account_number,
-         ifsc_code,
-         paytm_number,
-         upi_address,
-         withdrawal_amount,
-      } = req.body;
-
-      if (!version_code || !client_type || !device_info || !fcm_token || !login || !access_token) {
-         return res.status(400).json({
-            status: 400,
-            message: "Missing required headers.",
-         });
-      }
-
-      if (!user_id || !withdrawal_amount) {
-         return res.status(400).json({
-            status: 400,
-            message: "user_id and withdrawal_amount are required.",
-         });
-      }
-
-      if (withdrawal_amount <= 500) {
-         return res.status(400).json({
-            status: 400,
-            message: "Minimum withdrawal amount is 500.",
-         });
-      }
-
-      const sql = `
-       INSERT INTO user_withdrawal_master
-       (user_id, account_holder_name, account_number, ifsc_code, paytm_number, upi_address, withdrawal_amount, status, created_at)
-       VALUES (?, ?, ?, ?, ?, ?, ?, 0, NOW())
-     `;
-
-      const values = [
-         user_id,
-         account_holder_name || null,
-         account_number || null,
-         ifsc_code || null,
-         paytm_number || null,
-         upi_address || null,
-         withdrawal_amount,
-      ];
-
-      const [result] = await con.query(sql, values);
+         1,
+         amount,
+         transaction_id,
+         notes,
+         0
+      ]);
 
       return res.status(200).json({
-         status: 200,
-         message: "Withdrawal request submitted successfully.",
-         withdrawal_id: result.insertId,
+         status: true,
+         message: 'Withdrawal request submitted successfully',
+         data: {
+            withdrawal_id: insertResult.insertId,
+            user_id,
+            amount,
+            transaction_id,
+            status: 0
+         }
       });
    } catch (error) {
-      console.error("Database Error:", error);
+      console.error(error);
       return res.status(500).json({
-         status: 500,
-         message: "Internal Server Error.",
+         status: false,
+         message: 'Internal server error',
       });
    }
 });
+
+//Bank info
+router.post('/add-bank-info', async (req, res) => {
+   const headers = req.headers;
+   const {
+      version_code, client_type, device_info, fcm_token, login, access_token
+   } = headers;
+
+   const {
+      bank_id,
+      user_id,
+      account_holder_name,
+      account_number,
+      ifsc_code,
+      paytm_number,
+      upi_address
+   } = req.body;
+
+   // Validate headers and body fields
+   if (!user_id || !access_token || !login || !version_code || !client_type || !device_info || !fcm_token) {
+      return res.status(400).json({ status: false, message: 'Missing required fields in headers or body.' });
+   }
+
+   try {
+      // Verify JWT token
+      const decoded = jwt.verify(access_token, JWT_SECRET_KEY);
+      if (!decoded) {
+         return res.status(401).json({
+            status: false,
+            message: 'Invalid or expired access token.',
+         });
+      }
+
+      // Check if the user exists and matches the provided access token
+      const [userResult] = await con.execute(
+         `SELECT user_id, token FROM users WHERE phone = ? AND user_id = ?`,
+         [login, user_id]
+      );
+
+      if (userResult.length === 0 || userResult[0].token !== access_token) {
+         return res.status(401).json({
+            status: false,
+            message: 'Access token mismatch, user_id or login does not match.',
+         });
+      }
+
+      if (bank_id) {
+         // Update operation
+         const updateQuery = `
+            UPDATE user_bank_info
+            SET
+               account_holder_name = ?,
+               account_number = ?,
+               ifsc_code = ?,
+               paytm_number = ?,
+               upi_address = ?,
+               updated_at = NOW()
+            WHERE bank_id = ? AND user_id = ?
+         `;
+         const [updateResult] = await con.execute(updateQuery, [
+            account_holder_name,
+            account_number,
+            ifsc_code,
+            paytm_number,
+            upi_address,
+            bank_id,
+            user_id
+         ]);
+
+         if (updateResult.affectedRows === 0) {
+            return res.status(404).json({
+               status: false,
+               message: 'Bank info not found or user_id mismatch.',
+            });
+         }
+
+         return res.status(200).json({
+            status: true,
+            message: 'Bank info updated successfully',
+            data: {
+               bank_id,
+               user_id,
+               account_holder_name,
+               account_number,
+               ifsc_code,
+               paytm_number,
+               upi_address
+            }
+         });
+      } else {
+         // Add operation
+         const addQuery = `
+            INSERT INTO user_bank_info (
+               user_id,
+               app_id,
+               account_holder_name,
+               account_number,
+               ifsc_code,
+               paytm_number,
+               upi_address,
+               created_at
+            ) VALUES (?, 1, ?, ?, ?, ?, ?, NOW())
+         `;
+         const [addResult] = await con.execute(addQuery, [
+            user_id,
+            account_holder_name,
+            account_number,
+            ifsc_code,
+            paytm_number,
+            upi_address
+         ]);
+
+         return res.status(200).json({
+            status: true,
+            message: 'Bank info added successfully',
+            data: {
+               bank_id: addResult.insertId,
+               user_id,
+               account_holder_name,
+               account_number,
+               ifsc_code,
+               paytm_number,
+               upi_address
+            }
+         });
+      }
+   } catch (error) {
+      console.error(error);
+      return res.status(500).json({ status: false, message: 'Internal server error' });
+   }
+});
+
 
 //user withdrawal info
 router.post('/user-withdrawal-info', async (req, res) => {
@@ -2064,7 +2656,7 @@ router.post('/slot-list', async (req, res) => {
 router.post('/result-create', async (req, res) => {
    try {
       const { login, access_token } = req.headers;
-      const { game_id, game_type_id, slot_id, winner_values } = req.body;
+      const { game_id, game_type_id, slot_id, winner_values, result_date } = req.body;
 
       const adminQuery = `
       SELECT admin_id, token
@@ -2081,7 +2673,7 @@ router.post('/result-create', async (req, res) => {
          });
       }
 
-      if (!game_id || !game_type_id || !slot_id || !slot_id.length || !winner_values) {
+      if (!game_id || !game_type_id || !slot_id || !slot_id.length || !winner_values || !result_date) {
          return res.status(400).json({ status: false, message: 'Invalid input data' });
       }
 
@@ -2092,8 +2684,8 @@ router.post('/result-create', async (req, res) => {
          }
 
          await con.query(
-            `INSERT INTO result_master (game_id, game_type_id, slot_id, winner_value) VALUES (?, ?, ?, ?)`,
-            [game_id, game_type_id, slot, winnerValue]
+            `INSERT INTO result_master (game_id, game_type_id, slot_id,result_date, winner_value) VALUES (?, ?, ?,?, ?)`,
+            [game_id, game_type_id, slot, result_date, winnerValue]
          );
       }
 
@@ -2124,11 +2716,12 @@ router.post('/result-list', async (req, res) => {
          });
       }
 
-      const [rows] = await con.execute('SELECT result_id, game_id, game_type_id, slot_id, winner_value FROM result_master');
+      const [rows] = await con.execute('SELECT result_id, game_id, game_type_id, slot_id,result_date, winner_value FROM result_master');
 
       const formattedRows = rows.map(row => {
          return {
             ...row,
+            result_date: moment.tz(row.result_date, timezone).format('YYYY-MM-DD'),
             created_at: moment.tz(row.created_at, timezone).format('YYYY-MM-DD HH:mm:ss'),
          };
       });
@@ -2147,6 +2740,215 @@ router.post('/result-list', async (req, res) => {
    }
 });
 
+//Result update
+router.put('/update-result', async (req, res) => {
+   const { login, access_token } = req.headers;
+   const { result_id, winner_value } = req.body;
+
+   if (!login || !access_token || !result_id || !winner_value) {
+      return res.status(400).json({
+         status: false,
+         message: "Missing required headers or body parameters.",
+      });
+   }
+
+   try {
+      const decoded = jwt.verify(access_token, JWT_SECRET_KEY);
+      if (!decoded) {
+         return res.status(401).json({
+            status: false,
+            message: 'Invalid or expired access token.',
+         });
+      }
+
+      const adminQuery = `
+      SELECT admin_id, token
+      FROM app_admin_master
+      WHERE phone = ?;
+   `;
+      const [adminResult] = await con.execute(adminQuery, [login]);
+
+      if (adminResult.length === 0 || adminResult[0].token !== access_token) {
+         return res.status(401).json({
+            status: false,
+            message: 'Access token mismatch or admin not found.',
+            data: []
+         });
+      }
+
+      const updateQuery = `
+         UPDATE result_master
+         SET winner_value = ?
+         WHERE result_id = ?;
+      `;
+
+      const [updateResult] = await con.query(updateQuery, [winner_value, result_id]);
+
+      if (updateResult.affectedRows === 0) {
+         return res.status(404).json({
+            status: false,
+            message: 'Result not found or update failed.',
+         });
+      }
+
+      return res.status(200).json({
+         status: true,
+         message: 'Result updated successfully.',
+      });
+
+   } catch (error) {
+      if (error.name === 'JsonWebTokenError') {
+         return res.status(401).json({
+            status: false,
+            message: 'Invalid or expired access token.',
+         });
+      }
+
+      console.error(error);
+      return res.status(500).json({
+         status: false,
+         message: 'Internal server error.',
+      });
+   }
+});
+
+//User bid details
+router.post('/user-bid-details', async (req, res) => {
+   const {
+      version_code,
+      client_type,
+      device_info,
+      fcm_token,
+      login,
+      access_token
+   } = req.headers;
+
+   const { user_id } = req.body;
+
+   if (!version_code || !client_type || !device_info || !fcm_token || !login || !access_token) {
+      return res.status(400).json({
+         status: false,
+         message: 'Missing required headers',
+      });
+   }
+   if (!user_id) {
+      return res.status(400).json({
+         status: false,
+         message: 'Missing user_id in the request body',
+      });
+   }
+
+   try {
+      const decoded = jwt.verify(access_token, JWT_SECRET_KEY);
+      if (!decoded) {
+         return res.status(401).json({
+            status: false,
+            message: 'Invalid or expired access token',
+         });
+      }
+
+      const userQuery = `
+           SELECT user_id, token
+           FROM users
+           WHERE phone = ? AND token = ?;
+       `;
+      const [userResult] = await con.execute(userQuery, [login, access_token]);
+
+      if (userResult.length === 0) {
+         return res.status(401).json({
+            status: false,
+            message: 'Invalid login or access token',
+         });
+      }
+
+      const last30Days = moment().subtract(30, 'days').format('YYYY-MM-DD HH:mm:ss');
+
+      const gameMapQuery = `
+           SELECT
+               ugm.user_game_map_id,
+               ugm.slot_id,
+               ugm.game_id,
+               ugm.game_type_id,
+               ugm.bid_value,
+               ugcv.chosen_value,
+               ugcv.created_at
+           FROM user_game_map AS ugm
+           LEFT JOIN user_game_choosen_values AS ugcv
+               ON ugm.user_game_map_id = ugcv.user_game_map_id
+           WHERE ugm.user_id = ? AND ugcv.created_at >= ?;
+       `;
+      const [gameMapData] = await con.execute(gameMapQuery, [user_id, last30Days]);
+
+      if (gameMapData.length === 0) {
+         return res.status(200).json({
+            status: true,
+            message: 'No bid details found',
+            data: []
+         });
+      }
+
+      const groupedData = {};
+
+      for (const gameMap of gameMapData) {
+         const { game_id, game_type_id, slot_id, bid_value, chosen_value, created_at } = gameMap;
+
+         const formattedCreatedAt = moment(created_at)
+            .tz('timezone')
+            .format('YYYY-MM-DD HH:mm:ss');
+
+         const gameQuery = `
+               SELECT game_name
+               FROM game_master
+               WHERE game_id = ?;
+           `;
+         const [gameData] = await con.execute(gameQuery, [game_id]);
+
+         const gameTypeQuery = `
+               SELECT game_type_name
+               FROM game_type_master
+               WHERE game_type_id = ?;
+           `;
+         const [gameTypeData] = await con.execute(gameTypeQuery, [game_type_id]);
+
+         const slotQuery = `
+               SELECT start_time, end_time
+               FROM game_slot_configuration_master
+               WHERE slot_id = ?;
+           `;
+         const [slotData] = await con.execute(slotQuery, [slot_id]);
+
+         if (!groupedData[formattedCreatedAt]) {
+            groupedData[formattedCreatedAt] = {
+               game_name: gameData[0]?.game_name || null,
+               game_type_name: gameTypeData[0]?.game_type_name || null,
+               start_time: slotData[0]?.start_time || null,
+               end_time: slotData[0]?.end_time || null,
+               created_at: formattedCreatedAt,
+               bids: [],
+            };
+         }
+
+         groupedData[formattedCreatedAt].bids.push({
+            bid_value,
+            chosen_value
+         });
+      }
+
+      const responseData = Object.values(groupedData);
+
+      return res.status(200).json({
+         status: true,
+         message: 'User bid details retrieved successfully',
+         data: responseData
+      });
+   } catch (error) {
+      console.error(error);
+      return res.status(500).json({
+         status: false,
+         message: 'Internal server error',
+      });
+   }
+});
 
 router.get('/logout', (req, res) => {
    res.clearCookie('token');
