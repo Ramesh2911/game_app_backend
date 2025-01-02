@@ -7,6 +7,10 @@ import multer from "multer";
 import path from "path";
 import { fileURLToPath } from 'url';
 import fs from 'fs';
+import { createRequire } from 'module';
+
+var require = createRequire(import.meta.url);
+var module = { exports: {} };
 
 const router = express.Router();
 
